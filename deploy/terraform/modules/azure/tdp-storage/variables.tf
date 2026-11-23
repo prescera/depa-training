@@ -3,7 +3,9 @@ variable "datasets" {
     container_name = optional(string)
   }))
   description = <<-EOT
-    Datasets hosted in this account, keyed by dataset_id ("<owner_party_id>/<name>", spec §7.1).
+    Datasets hosted in this account, keyed by dataset_id ("<owner_party_id>/<name>", spec §7.1), or
+    "<owner_party_id>/*" (broker mode, container_name required) for one container holding every
+    dataset of that owner, e.g. when dataset ids are not known in advance.
     Each dataset gets its own private container (default: the dataset name with "." and "_"
     replaced by "-") and its own user-assigned identity whose federated credential trusts
     sub = "dataset:<dataset_id>", with Storage Blob Data Reader on that container only.
@@ -15,8 +17,13 @@ variable "datasets" {
   }
 
   validation {
-    condition     = alltrue([for id in keys(var.datasets) : can(regex("^[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,127}$", id))])
-    error_message = "Dataset ids must match ^[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,127}$ (spec §7.1)."
+    condition     = alltrue([for id in keys(var.datasets) : can(regex("^[a-z0-9][a-z0-9-]{1,62}/([a-z0-9][a-z0-9._-]{0,127}|\\*)$", id))])
+    error_message = "Dataset ids must match ^[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,127}$ (spec §7.1), or <owner>/* for an owner wildcard."
+  }
+
+  validation {
+    condition     = alltrue([for id, d in var.datasets : !endswith(id, "/*") || d.container_name != null])
+    error_message = "An owner wildcard (<owner>/*) needs an explicit container_name."
   }
 
   validation {

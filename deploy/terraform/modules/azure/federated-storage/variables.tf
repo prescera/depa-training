@@ -94,7 +94,8 @@ variable "grants" {
     container_name = string
   }))
   description = <<-EOT
-    Federated grants keyed by the OIDC `sub` claim the KMS issues (e.g. "dataset:bank-a/loans").
+    Federated grants keyed by the OIDC `sub` claim the KMS issues (e.g. "dataset:bank-a/loans"; in
+    broker mode also "dataset:bank-a/*" for every dataset of that owner).
     One private container per distinct container_name and one user-assigned identity per grant
     (federated credential subject = the key). `access` = "read" (Storage Blob Data Reader) or
     "write" (custom role: blobs/write + blobs/add/action only), assigned at container scope.
@@ -118,6 +119,11 @@ variable "grants" {
   validation {
     condition     = alltrue([for s in keys(var.grants) : can(regex("^(dataset|output):", s)) && length(s) <= 600])
     error_message = "Grant subjects must start with \"dataset:\" or \"output:\" (spec §10) and be <= 600 characters."
+  }
+
+  validation {
+    condition     = var.federation_mode == "broker" || alltrue([for s in keys(var.grants) : !endswith(s, "/*")])
+    error_message = "Owner wildcard subjects (\"dataset:<owner>/*\") need federation_mode = \"broker\"; Entra federated credentials match exact subjects."
   }
 }
 

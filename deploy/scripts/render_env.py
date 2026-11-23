@@ -58,13 +58,14 @@ def main() -> None:
 
     storage = {}
     for party, s in (workloads.get("storage") or {}).items():
-        first = next(iter(s["datasets"].values()))
+        wildcard = [d for ds_id, d in s["datasets"].items() if ds_id.endswith("/*")]
+        first = wildcard[0] if wildcard else next(iter(s["datasets"].values()))
         storage[party] = {
             "connector": "azure-blob",
-            # The SDK places dataset <owner>/<name> at <uri><name>/<version>/, i.e. in the
-            # container named after the dataset, which is the container tdp-storage creates
-            # (and the scope of the broker's SAS).
-            "uri": f"https://{s['storage_account_name']}.blob.core.windows.net/",
+            # The SDK places dataset <owner>/<name> at <uri><name>/<version>/. Pilot parties hold
+            # all their datasets in one container (owner wildcard grant), so <uri> is that
+            # container; otherwise it is the account and each dataset has its own container.
+            "uri": first["location"]["uri"] if wildcard else f"https://{s['storage_account_name']}.blob.core.windows.net/",
             "region": first["location"]["region"],
             "federation": first["federation"],
         }

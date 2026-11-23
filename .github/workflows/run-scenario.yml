@@ -12,7 +12,7 @@ on:
         type: environment
         required: true
       scenario:
-        description: Scenario (scenarios/<name>); must be listed in PILOT_SCENARIOS
+        description: Scenario (scenarios/<name>); mapped onto the fixed pilot parties
         type: choice
         options: [mnist, credit-risk, cifar10, covid, brats, llm-sft]
         default: mnist
@@ -50,14 +50,9 @@ jobs:
       id-token: write
       actions: read # download the latest ccr-releases artifact
     env:
-      PILOT_SCENARIOS: ${{ vars.PILOT_SCENARIOS }}
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
       PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
-      AKS_ADMIN_GROUP_OBJECT_ID: ${{ vars.AKS_ADMIN_GROUP_OBJECT_ID }}
-      DEPLOYER_OBJECT_ID: ${{ vars.DEPLOYER_OBJECT_ID }}
-      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
-      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
       GCP_PROJECT: ${{ inputs.platform == 'gcp' && vars.GCP_PROJECT || '' }}
       GCP_ZONE: ${{ vars.GCP_ZONE }}
       GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
@@ -66,22 +61,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check inputs (scenario hosted by this pilot, platform)
+      - name: Check inputs
         env:
           SCENARIO: ${{ inputs.scenario }}
           PLATFORM: ${{ inputs.platform }}
         run: |
           [[ "${PLATFORM}" == aks || "${PLATFORM}" == gcp ]] || { echo "::error::platform must be aks or gcp"; exit 1; }
-          [[ ",${PILOT_SCENARIOS}," == *",${SCENARIO},"* ]] \
-            || { echo "::error::${SCENARIO} is not in PILOT_SCENARIOS (${PILOT_SCENARIOS}); add it and re-run both infra phases"; exit 1; }
+          [[ -f "scenarios/${SCENARIO}/contract.yaml" ]] || { echo "::error::no scenario scenarios/${SCENARIO}"; exit 1; }
       - id: pilot
         uses: ./.github/actions/pilot-terraform
         with:
           environment: ${{ inputs.environment }}
           services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         if: inputs.platform == 'gcp'
         with:

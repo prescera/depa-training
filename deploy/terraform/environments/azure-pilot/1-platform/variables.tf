@@ -42,8 +42,10 @@ variable "parties" {
   }))
   description = <<-EOT
     Parties of the collaborative; each gets its own resource group. roles ⊆ [tdp, tdc, dc-member].
-    `datasets` (TDPs) are keyed by dataset_id "<party_id>/<name>"; `compute = true` on exactly
-    one TDC places the AKS + virtual nodes clean-room cluster in that party's group.
+    `datasets` (TDPs) are keyed by dataset_id "<party_id>/<name>", or "<party_id>/*" for one
+    container holding every dataset of that party (the fixed pilot set from
+    deploy/scripts/pilot-parties.py); `compute = true` on one TDC places the AKS + virtual nodes
+    clean-room cluster in that party's group.
   EOT
 
   validation {

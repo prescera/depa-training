@@ -13,7 +13,9 @@ CCR ──POST /sas, Bearer <KMS token (aud = broker audience)>──▶ broker 
 
 The broker verifies the token against the **pinned** KMS JWKS (ES256 only, `kid` lookup, raw
 r‖s signature), `iss` = `oidc_issuer_url`, `aud` = `audience`, `exp`/`nbf`/`iat` with 30 s
-leeway, lifetime ≤ 1 h, and `sub` ∈ configured grants. It answers **401** for any token
+leeway, lifetime ≤ 1 h, and `sub` ∈ configured grants (exact, or an owner wildcard
+`dataset:<owner>/*` matching `dataset:<owner>/<name>` for a container that holds all of that
+owner's datasets, as in the Azure pilot). It answers **401** for any token
 problem (no detail), **403** for a valid token whose `sub` is not configured, otherwise a
 **user-delegation SAS** on the grant's container: `sp=rl` for `dataset:<id>`, `sp=cw` for
 `output:<party>`, `spr=https`, expiry = min(token `exp`, now + `sas_max_ttl_seconds`). Every

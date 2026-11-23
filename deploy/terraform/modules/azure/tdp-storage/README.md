@@ -17,7 +17,7 @@ user-assigned identity per dataset whose federated credential trusts only that s
 | `resource_group_name`, `location` | Existing resource group and region. |
 | `storage_account_name` | Globally unique, 3-24 lowercase alphanumerics. |
 | `oidc_issuer_url` | KMS issuer, https, no trailing slash. |
-| `datasets` | `{ "<owner>/<name>" = { container_name = optional } }`; default container = dataset name with `.`/`_` → `-`; must be unique. |
+| `datasets` | `{ "<owner>/<name>" = { container_name = optional } }`; default container = dataset name with `.`/`_` → `-`; must be unique. Broker mode also accepts `"<owner>/*" = { container_name = "datasets" }`: one container for every dataset of the owner (ids not known in advance). |
 | `allowed_ip_rules` | Optional IP allowlist (CCR egress IPs + Terraform runner). |
 | `federation_mode` | `broker` (default) or `entra`. |
 | `broker` | Broker mode: `package_path`, `kms_jwks_json` (pinned), `host_storage_account_name`, optional `audience`, `jwks_refresh`, `sas_max_ttl_seconds`, `log_analytics_workspace_id`. |

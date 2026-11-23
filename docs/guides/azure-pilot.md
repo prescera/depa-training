@@ -20,8 +20,16 @@ Follow [deploy/README.md → one-time setup](../../deploy/README.md#azure-pilot-
    GitHub environment, so no client secret exists anywhere;
 3. grants it Contributor and User Access Administrator on a dedicated subscription;
 4. creates an AKS admin group and a Terraform state account;
-5. sets the GitHub environment variables (region, name prefix, `PILOT_SCENARIOS`);
-6. stores the pilot party keys in the `DEPA_PARTY_KEYS` secret.
+5. stores the Azure identifiers (client, tenant and subscription ids, AKS admin group,
+   deployer object id, Terraform state group and account) as GitHub **environment secrets**,
+   and the region, region short code, name prefix and `DEPA_SERVICES_REF` as environment
+   **variables**;
+6. generates keys for the six fixed pilot parties and publishes them as the `DEPA_PARTY_KEYS`
+   secret (`deploy/scripts/party-keys.sh init` + `publish`).
+
+The pilot always has the same parties: `dc-member-1`, `tdc` (also a provider: it owns the
+llm-sft base model) and `tdp-1` … `tdp-4`. Every scenario's own provider ids are mapped onto
+these slots, so one deployment runs any scenario.
 
 The pilot default region is **`eastus`** (short code `eus`); production deployments in India
 use `centralindia` (`cin`). The region must offer Azure Confidential Ledger, Functions Flex
@@ -42,8 +50,7 @@ runs the five steps below in order. They can also be run one by one:
 | 4 | Pilot · build CCR releases | Clean-room images in ACR, CCE policies, release manifests |
 | 5 | Pilot · run scenario | Pick a scenario and the `aks` platform. Uploads the run summary and receipts. |
 
-Re-run step 5 for any scenario listed in `PILOT_SCENARIOS`. To add a scenario, extend the
-variable and the key secret, then re-run steps 1, 3 and 5. **Pilot · teardown** removes
+Re-run step 5 for any scenario; no redeployment is needed. **Pilot · teardown** removes
 everything.
 
 ## 3. Check the result

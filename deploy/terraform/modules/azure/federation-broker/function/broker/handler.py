@@ -1,7 +1,8 @@
 """Request handling: Bearer KMS token in, container-scoped user-delegation SAS out (spec §10.1).
 
 Responses: 200 {"sas_url", "prefix", "expires_at"}; 401 for any token problem (no detail);
-403 for a valid token whose sub is not configured.
+403 for a valid token whose sub is not configured. A grant keyed "dataset:<owner>/*" covers every
+dataset of that owner (one container holding all of the owner's datasets).
 """
 
 from __future__ import annotations
@@ -118,6 +119,18 @@ class Broker:
                 self._verifier = Verifier(self._config.issuer, self._config.audience, keys)
             return self._verifier.verify(token, now)
 
+    def _grant_for(self, subject: str) -> Grant | None:
+        """Exact subject, else an owner wildcard "dataset:<owner>/*" matching dataset:<owner>/<name>."""
+        grant = self._config.grants.get(subject)
+        if grant is not None:
+            return grant
+        for key, candidate in self._config.grants.items():
+            if key.endswith("/*"):
+                rest = subject.removeprefix(key[:-1])
+                if rest != subject and rest and "/" not in rest:
+                    return candidate
+        return None
+
     def handle(self, authorization: str | None, now: float | None = None) -> tuple[int, dict[str, Any]]:
         now = time.time() if now is None else now
         scheme, _, token = (authorization or "").partition(" ")
@@ -130,7 +143,7 @@ class Broker:
             return 401, {"error": "unauthorized"}
 
         subject = claims["sub"]
-        grant = self._config.grants.get(subject)
+        grant = self._grant_for(subject)
         if grant is None:
             log.warning("valid token for unconfigured subject %r (jti=%s)", subject, claims.get("jti"))
             return 403, {"error": "forbidden"}

@@ -4,7 +4,7 @@
 |---|---|
 | [`terraform/`](terraform) | Modules and per-role environments (multi-subscription, multi-cloud production layout). |
 | [`terraform/environments/azure-pilot`](terraform/environments/azure-pilot) | One Azure subscription, one resource group per party: DC services (KMS + CS on ACL), each TDP's storage + SAS broker, TDC output storage, TDC AKS + virtual nodes v2 cluster, ACR. |
-| [`scripts/`](scripts) | `pilot-parties.py` (parties from scenarios), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `render-env.sh` (Terraform outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
+| [`scripts/`](scripts) | `pilot-parties.py` (the fixed pilot parties), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `render-env.sh` (Terraform outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
 | `../.github/workflows/` | `deploy-infra.yml`, `deploy-services.yml`, `build-releases.yml`, `run-scenario.yml`, `teardown.yml` (each `workflow_dispatch` + `workflow_call`, Azure login with GitHub OIDC, gated by a GitHub environment); `demo.yml` chains them end to end; `pr-demo.yml` runs it for PRs labelled `run-azure-demo`; `e2e-local.yml` is the always-on sandbox check. |
 
 ## Azure pilot: one-time setup
@@ -31,7 +31,7 @@ done
 
 # 2. Deployment identity: app registration + service principal, trusted for this repo's
 #    GitHub environment only (subject repo:<owner>/<repo>:environment:<env>)
-APP_ID=$(az ad app create --display-name "depa-pilot-deployer-$ENV" --query appId -o tsv)
+APP_ID=$(az ad app create --display-name "depa-training-v2-$ENV" --query appId -o tsv)
 SP_OID=$(az ad sp create --id "$APP_ID" --query id -o tsv)
 az ad app federated-credential create --id "$APP_ID" --parameters "{
   \"name\": \"github-$ENV\",
@@ -49,50 +49,58 @@ az role assignment create --assignee-object-id "$SP_OID" --assignee-principal-ty
   --role "User Access Administrator" --scope "/subscriptions/$SUB"
 
 # 4. AKS admin group (local accounts are disabled on the clean-room cluster)
-GROUP_OID=$(az ad group create --display-name "depa-pilot-aks-admins-$ENV" \
-  --mail-nickname "depa-pilot-aks-admins-$ENV" --query id -o tsv)
+GROUP_OID=$(az ad group create --display-name "depa-training-v2-aks-admins-$ENV" \
+  --mail-nickname "depa-training-v2-aks-admins-$ENV" --query id -o tsv)
 az ad group member add --group "$GROUP_OID" --member-id "$SP_OID"
 
 # 5. Terraform state (Entra-only, no shared keys)
-az group create --name "depa-pilot-tfstate-rg" --location "$LOC"
-az storage account create --name "$STATE_SA" --resource-group depa-pilot-tfstate-rg --location "$LOC" \
+az group create --name "depa-training-v2-tfstate-rg" --location "$LOC"
+az storage account create --name "$STATE_SA" --resource-group depa-training-v2-tfstate-rg --location "$LOC" \
   --sku Standard_ZRS --min-tls-version TLS1_2 --allow-blob-public-access false \
   --allow-shared-key-access false
-STATE_ID=$(az storage account show --name "$STATE_SA" --resource-group depa-pilot-tfstate-rg --query id -o tsv)
+STATE_ID=$(az storage account show --name "$STATE_SA" --resource-group depa-training-v2-tfstate-rg --query id -o tsv)
 az role assignment create --assignee-object-id "$SP_OID" --assignee-principal-type ServicePrincipal \
   --role "Storage Blob Data Contributor" --scope "$STATE_ID"
 az role assignment create --assignee "$(az ad signed-in-user show --query id -o tsv)" \
   --role "Storage Blob Data Contributor" --scope "$STATE_ID"
 az storage container create --name tfstate --account-name "$STATE_SA" --auth-mode login
 
-# 6. GitHub environment (add required reviewers in Settings → Environments for an approval gate)
+# 6. GitHub environment (add required reviewers in Settings → Environments for an approval gate).
+#    Azure identifiers are environment *secrets*; region and naming are environment *variables*.
 gh api --method PUT "repos/$REPO/environments/$ENV" >/dev/null
+s() { gh secret set "$1" --env "$ENV" --repo "$REPO" --body "$2"; }
 v() { gh variable set "$1" --env "$ENV" --repo "$REPO" --body "$2"; }
-v AZURE_CLIENT_ID "$APP_ID"
-v AZURE_TENANT_ID "$TENANT"
-v AZURE_SUBSCRIPTION_ID "$SUB"
+s AZURE_CLIENT_ID "$APP_ID"
+s AZURE_TENANT_ID "$TENANT"
+s AZURE_SUBSCRIPTION_ID "$SUB"
+s AKS_ADMIN_GROUP_OBJECT_ID "$GROUP_OID"
+s DEPLOYER_OBJECT_ID "$SP_OID"
+s TFSTATE_RESOURCE_GROUP depa-training-v2-tfstate-rg
+s TFSTATE_STORAGE_ACCOUNT "$STATE_SA"
 v AZURE_LOCATION "$LOC"
 v AZURE_REGION_SHORT eus                     # 2-6 chars, used in ledger names (cin for centralindia)
 v PILOT_NAME_PREFIX pilot1                   # 2-8 chars
-v PILOT_SCENARIOS "mnist,credit-risk"        # scenarios this pilot hosts (parties/datasets derive from them)
-v AKS_ADMIN_GROUP_OBJECT_ID "$GROUP_OID"
-v DEPLOYER_OBJECT_ID "$SP_OID"
-v TFSTATE_RESOURCE_GROUP depa-pilot-tfstate-rg
-v TFSTATE_STORAGE_ACCOUNT "$STATE_SA"
 v DEPA_SERVICES_REF main                     # ref of <owner>/depa-training-kms-azure and <owner>/contract-service
+# Optional repository variable for PRs labelled run-azure-demo (default: pilot):
+# gh variable set DEMO_ENVIRONMENT --repo "$REPO" --body "$ENV"
 ```
 
 ### Party keys (secret `DEPA_PARTY_KEYS`)
 
-The workflows act for every party of the pilot, so they need each party's key directory
-(`<party_id>/{signing.jwk,hpke.jwk,party.json}`, as written by the `depa` CLI). Generate one per
-party listed by `deploy/scripts/pilot-parties.py $(tr ',' ' ' <<<"$PILOT_SCENARIOS")` (DC member
-`dc-member-1`, every TDP, and the TDC `tdc`) with the `depa` CLI into one directory, then:
+The pilot always has the same six parties, whatever scenario runs: `dc-member-1`
+(dc-member), `tdc` (tdc + tdp: it owns the llm-sft base model) and `tdp-1` … `tdp-4` (tdp; four
+is the most providers in any scenario). The SDK maps each scenario's own provider ids onto these
+slots. The workflows act for every party, so they need all six key directories. With the SDK
+installed (`pip install ./sdk/python` from the repository root):
 
 ```bash
-gh secret set DEPA_PARTY_KEYS --env "$ENV" --repo "$REPO" \
-  --body "$(deploy/scripts/party-keys.sh pack ./pilot-keys)"
+deploy/scripts/party-keys.sh init ./pilot-keys                          # refuses to overwrite existing keys
+deploy/scripts/party-keys.sh publish ./pilot-keys --env "$ENV" --repo "$REPO"
 ```
+
+`publish` packs into a private temporary file and only sets the secret when packing succeeded,
+so a missing or incomplete key directory can never produce an empty secret. Keep `./pilot-keys`
+somewhere safe (it is needed to re-publish) or regenerate and re-publish before a fresh pilot.
 
 This concentrates every party's signing key in one GitHub environment: acceptable for a pilot
 on synthetic data only. Production parties keep their own keys and run their own steps.
@@ -122,8 +130,7 @@ stage:
 | 5 | **Pilot · run scenario** | scenario, platform | `depa-env.yaml`, keys, `depa dc setup` (idempotent), `depa scenario deploy`; uploads receipts + run summary |
 | — | **Pilot · teardown** | confirm | destroys phase 2 then phase 1 |
 
-Adding a scenario later: append it to `PILOT_SCENARIOS`, add its party keys to the secret, and
-re-run steps 1 and 3 (new party groups, storage and brokers), then step 5.
+Any scenario runs on the same deployment: pick it in step 5 (or in the demo).
 
 ### Why the pilot needs no public KMS gateway
 
@@ -152,6 +159,17 @@ terraform init && terraform apply
 deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys --releases-dir ccr/releases --out depa-env.yaml
 ```
 
+## Troubleshooting
+
+- **`DEPA_PARTY_KEYS is empty`** in *deploy services* or *run scenario*: the secret was set from
+  an empty value (e.g. an earlier `gh secret set --body "$(…)"` whose command failed). Re-publish
+  it with `party-keys.sh init` (only if you have no keys yet) and `party-keys.sh publish` as
+  above. **The current `pilot` environment's secret is empty and must be re-published.**
+- **`<NAME> is empty: set the environment secret/variable`**: an Azure identifier secret or a
+  region/naming variable is missing from the GitHub environment (step 6).
+- **Region preflight fails**: the region lacks ACL, Flex Consumption or virtual nodes v2
+  confidential pods; pick another (`eastus`, `centralindia`, …) and update the variables.
+
 ## Assumptions and limits
 
 - `depa dc setup` is idempotent and approves the CCR releases found in `releases_dir`;
@@ -159,9 +177,10 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys
   its `--work-dir`; the work dir itself is never uploaded because it holds plaintext data)
   (CLI owned by the SDK).
 - `depa-env.yaml` follows `sdk/python/src/depa/env/schema.json`: `service_cert` is a path
-  relative to the env file (`certs/kms.pem`, `certs/cs.pem`); `storage.<party>.uri` is the
-  account endpoint, so the SDK's `<uri><dataset name>/<version>/` lands in the per-dataset
-  container that `tdp-storage` creates (and that the broker's SAS is scoped to).
+  relative to the env file (`certs/kms.pem`, `certs/cs.pem`); each pilot TDP keeps all its
+  datasets in one `datasets` container, so `storage.<party>.uri` is that container and the
+  SDK's `<uri><dataset name>/<version>/` lands there. Its broker grants `dataset:<party>/*`
+  (any dataset of that owner, ciphertext only: keys are still released per dataset by the KMS).
 - Pilot only: the deployment principal gets *Storage Blob Data Contributor* on TDP data accounts
   and *Storage Blob Data Reader* on TDC output accounts (`operator_object_ids`) because the
   workflows act for every party; clean rooms themselves only ever use broker-issued SAS.

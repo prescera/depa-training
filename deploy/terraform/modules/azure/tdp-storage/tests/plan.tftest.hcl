@@ -124,3 +124,30 @@ run "rejects_colliding_containers" {
 
   expect_failures = [var.datasets]
 }
+
+run "owner_wildcard_in_broker_mode" {
+  command = apply
+
+  variables {
+    datasets = {
+      "tdp-1/*" = { container_name = "datasets" }
+    }
+  }
+
+  assert {
+    condition     = output.datasets["tdp-1/*"].container == "datasets"
+    error_message = "An owner wildcard maps to its explicit container."
+  }
+}
+
+run "owner_wildcard_needs_container" {
+  command = plan
+
+  variables {
+    datasets = {
+      "tdp-1/*" = {}
+    }
+  }
+
+  expect_failures = [var.datasets]
+}

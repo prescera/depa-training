@@ -6,9 +6,11 @@ name_prefix     = "pilot1"
 
 parties = [
   { party_id = "dc-member-1", roles = ["dc-member"] },
-  { party_id = "bank-a", roles = ["tdp"], datasets = { "bank-a/credit-applications" = {} } },
-  { party_id = "bureau-b", roles = ["tdp"], datasets = { "bureau-b/bureau-scores" = {} } },
-  { party_id = "fintech-x", roles = ["tdc"], compute = true },
+  { party_id = "tdc", roles = ["tdc", "tdp"], compute = true, datasets = { "tdc/*" = { container_name = "datasets" } } },
+  { party_id = "tdp-1", roles = ["tdp"], datasets = { "tdp-1/*" = { container_name = "datasets" } } },
+  { party_id = "tdp-2", roles = ["tdp"], datasets = { "tdp-2/*" = { container_name = "datasets" } } },
+  { party_id = "tdp-3", roles = ["tdp"], datasets = { "tdp-3/*" = { container_name = "datasets" } } },
+  { party_id = "tdp-4", roles = ["tdp"], datasets = { "tdp-4/*" = { container_name = "datasets" } } },
 ]
 
 # Object ID of the GitHub deployment service principal (see deploy/README.md) and an Entra group

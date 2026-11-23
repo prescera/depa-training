@@ -99,3 +99,12 @@ def test_config_from_env(signer):
     assert cfg.blob_endpoint.endswith(".net") and cfg.grants["output:fintech-x"].access == "write"
     with pytest.raises(ValueError):
         Config.from_env(env | {"BROKER_GRANTS": json.dumps({"x": {"container": "c", "access": "delete"}})})
+
+
+def test_owner_wildcard_grant(signer):
+    grants = {"dataset:tdp-1/*": Grant(container="datasets", prefix="", access="read")}
+    broker = Broker(config(signer, grants=grants), key_provider)
+    status, body = broker.handle(f"Bearer {signer.token(sub='dataset:tdp-1/brain-mri')}", NOW)
+    assert status == 200 and urlsplit(body["sas_url"]).path == "/datasets"
+    for sub in ("dataset:tdp-1/", "dataset:tdp-1/a/b", "dataset:tdp-10/x", "dataset:tdp-2/x", "output:tdp-1"):
+        assert broker.handle(f"Bearer {signer.token(sub=sub)}", NOW)[0] == 403, sub
