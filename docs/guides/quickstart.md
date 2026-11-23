@@ -13,9 +13,17 @@ no hardware attestation. Everything else is the production code path.
 
 ```
 ~/depa_training/            # or any directory; then set DEPA_KMS_REPO / DEPA_CS_REPO
-  depa-training/            # this repository (branch sarang/training-v2)
+  depa-training/            # this repository
   depa-training-kms-azure/
   contract-service/
+```
+
+```bash
+mkdir -p ~/depa_training && cd ~/depa_training
+for r in depa-training depa-training-kms-azure contract-service; do
+  git clone https://github.com/prescera/$r.git
+done
+cd depa-training
 ```
 
 ## Install

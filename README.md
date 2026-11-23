@@ -8,8 +8,8 @@ training runs inside hardware-attested *confidential clean rooms* (CCRs), and ea
 provider's data can be decrypted only inside a clean room that runs approved code, under a
 contract that provider has signed.
 
-> Branch `sarang/training-v2` is the production-grade re-architecture (v2). The v1 proof of
-> concept remains on `main`.
+> This is DEPA Training v2, a production-grade re-architecture of the v1 proof of concept
+> (single resource group, ACI deployment scripts), which is preserved in the git history.
 
 ## Why a new paradigm
 

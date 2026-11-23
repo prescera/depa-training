@@ -26,11 +26,18 @@ The base model is loaded offline from safetensors with `trust_remote_code=False`
 
 Every script is non-interactive and accepts `--out DIR`. Each JSONL row is `{"example_id", "prompt", "completion"}`. A DP variant of the recipe sets `privacy: {mode: dp, ...}` and adds `privacy_unit: example_id` to the `pool` step.
 
-## Run locally (plaintext)
+## Run it
 
 ```bash
+# Locally, end to end: CCF sandboxes plus a development-only virtual clean room
+depa dev up && depa dev scenario run llm-sft
+
+# Plaintext training only (no services, no encryption)
 bash prepare/prepare_all.sh --inputs /tmp/llm/inputs        # needs network for the base model
 depa-train run --recipe recipe.yaml --inputs /tmp/llm/inputs --outputs /tmp/llm/out --result /tmp/llm/result.json
 ```
 
 Verified on CPU: about 2 minutes, eval loss 0.0025 (the synthetic task is highly regular).
+
+On Azure, run **Pilot · end-to-end demo** with scenario `llm-sft`. The clean room uses the `llm`
+image family.
