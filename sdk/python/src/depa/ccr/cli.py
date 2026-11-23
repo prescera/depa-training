@@ -30,6 +30,9 @@ USAGE = "usage: depa-ccr run   (configured through DEPA_* environment variables)
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if args in (["--help"], ["-h"], ["run", "--help"], ["run", "-h"]):
+        sys.stdout.write(USAGE)
+        return 0
     if args != ["run"]:
         sys.stderr.write(USAGE)
         return 2
