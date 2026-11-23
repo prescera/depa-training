@@ -1,10 +1,41 @@
+# Model and binary artifacts (never commit trained models or key material)
 **/*.onnx
 **/*.pth
 **/*.pt
 **/*.img
 **/*.bin
 **/*.pem
+**/*.jwk
 
+# Python
 venv/
-
+.venv/
 **/__pycache__/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+sdk/python/build/
+trainers/build/
+gui/build/
+**/dist/*.whl
+**/dist/*.tar.gz
+
+# Scenario data: downloaded raw data and prepared plaintext datasets are generated locally
+# by scenarios/<name>/prepare/ (bundled source archives stay tracked)
+scenarios/*/data/raw/
+scenarios/*/data/**/preprocessed/
+scenarios/*/data/preprocessed/
+
+# Terraform state, plans and local variables
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+*.auto.tfvars.json
+
+# Local environment files generated from Terraform outputs (contain key paths)
+depa-env.yaml
+pilot-keys/
