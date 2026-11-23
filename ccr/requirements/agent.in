@@ -1,0 +1,8 @@
+# Clean-room agent environment (/opt/depa/agent): the depa SDK (provides `depa-ccr`) with the
+# AWS extra for S3 federation, plus the light depa-train core the agent imports to validate
+# recipes against contracts. Compile from the repository root:
+#   uv pip compile ccr/requirements/agent.in -o ccr/requirements/agent.txt -p 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --generate-hashes \
+#     --no-emit-package depa --no-emit-package depa-train --emit-index-url
+./sdk/python[aws]
+./trainers

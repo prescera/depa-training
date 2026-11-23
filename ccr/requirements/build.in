@@ -1,0 +1,6 @@
+# Build backend for the in-repo packages (sdk/python, trainers), installed with hashes so that
+# `pip install --no-build-isolation` does not fetch unpinned build dependencies. Compile with:
+#   uv pip compile ccr/requirements/build.in -o ccr/requirements/build.txt -p 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --generate-hashes
+setuptools>=69,<81
+wheel

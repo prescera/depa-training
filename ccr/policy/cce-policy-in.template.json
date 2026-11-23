@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "scenario": "vn2",
+  "containers": [
+    {
+      "name": "ccr",
+      "properties": {
+        "image": "${IMAGE}",
+        "command": ["depa-ccr", "run"],
+        "environmentVariables": [
+          {
+            "name": "DEPA_CONTRACT_ID",
+            "value": "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "regex": true
+          },
+          {
+            "name": "DEPA_RECIPE_DIGEST",
+            "value": "sha256:[0-9a-f]{64}",
+            "regex": true
+          },
+          {
+            "name": "DEPA_CS_URL",
+            "value": "https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?",
+            "regex": true
+          },
+          {
+            "name": "DEPA_KMS_URL",
+            "value": "https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?",
+            "regex": true
+          },
+          {
+            "name": "DEPA_PLATFORM",
+            "value": "aci-snp"
+          },
+          {
+            "name": "DEPA_TRUST_BUNDLE",
+            "value": "[ -~]+",
+            "regex": true
+          },
+          {
+            "name": "DEPA_LOG_LEVEL",
+            "value": "(info|warning|error)",
+            "regex": true
+          }
+        ],
+        "volumeMounts": []
+      }
+    }
+  ]
+}

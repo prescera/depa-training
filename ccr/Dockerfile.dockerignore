@@ -1,0 +1,15 @@
+# Build context is the repository root; send only what the image needs.
+*
+!ccr/build/install-venv.sh
+!ccr/requirements/agent.txt
+!ccr/requirements/build.txt
+!sdk/python/pyproject.toml
+!sdk/python/README.md
+!sdk/python/src/**
+!trainers/pyproject.toml
+!trainers/README.md
+!trainers/src/**
+!trainers/requirements/*.txt
+**/__pycache__
+**/*.egg-info
+**/*.pyc
