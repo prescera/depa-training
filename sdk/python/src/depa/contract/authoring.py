@@ -52,7 +52,48 @@ def _resolve_validity(spec: object, now: datetime) -> dict[str, str]:
     return {"not_before": format_rfc3339(start), "not_after": format_rfc3339(end)}
 
 
-def _resolve_recipes(items: object, base_dir: Path) -> list[dict[str, Any]]:
+def map_dataset_id(dataset_id: str, party_map: Mapping[str, str]) -> str:
+    """``<owner>/<name>`` with the owner replaced through ``party_map`` (unmapped owners unchanged)."""
+    owner, name = check_dataset_id(dataset_id).split("/", 1)
+    return f"{party_map.get(owner, owner)}/{name}"
+
+
+def map_recipe(document: Mapping[str, Any], party_map: Mapping[str, str]) -> dict[str, Any]:
+    """The recipe with ``inputs[].dataset_id`` mapped (its digest changes accordingly)."""
+    out = dict(document)
+    out["inputs"] = [
+        dict(item, dataset_id=map_dataset_id(str(item["dataset_id"]), party_map)) if isinstance(item, dict) else item
+        for item in document.get("inputs", [])
+    ]
+    return out
+
+
+def _map_parties(doc: dict[str, Any], party_map: Mapping[str, str], version_suffix: str) -> None:
+    """Rewrite a rendered contract template onto the environment's party slots (in place)."""
+    parties = doc.get("parties")
+    if isinstance(parties, dict):
+        if isinstance(parties.get("tdc"), str):
+            parties["tdc"] = party_map.get(parties["tdc"], parties["tdc"])
+        if isinstance(parties.get("tdps"), list):
+            parties["tdps"] = list(dict.fromkeys(party_map.get(p, p) for p in parties["tdps"]))
+    for entry in doc.get("datasets") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("dataset_id"), str):
+            entry["dataset_id"] = map_dataset_id(entry["dataset_id"], party_map)
+            if isinstance(entry.get("version"), str):
+                entry["version"] = entry["version"] + version_suffix
+    output = doc.get("output")
+    if isinstance(output, dict) and isinstance(output.get("recipients"), list):
+        mapped = []
+        for ref in output["recipients"]:
+            if isinstance(ref, str) and ref.startswith("party:") and "#" in ref:
+                party, kid = ref[len("party:") :].split("#", 1)
+                mapped.append(f"party:{party_map.get(party, party)}#{kid}")
+            else:
+                mapped.append(ref)
+        output["recipients"] = mapped
+
+
+def _resolve_recipes(items: object, base_dir: Path, party_map: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     if not isinstance(items, list) or not items:
         raise ValidationError("computation.recipes must be a non-empty list", code="bad_template")
     out = []
@@ -68,6 +109,9 @@ def _resolve_recipes(items: object, base_dir: Path) -> list[dict[str, Any]]:
         recipe_digest = digest(document)
         if "digest" in item and item["digest"] != recipe_digest:
             raise ValidationError(f"computation.recipes[{i}].digest does not match the recipe", code="bad_template")
+        if party_map:
+            document = map_recipe(document, party_map)
+            recipe_digest = digest(document)
         out.append({"digest": recipe_digest, "document": document})
     return out
 
@@ -80,6 +124,8 @@ def build_contract(
     contract_id: str | None = None,
     now: datetime | None = None,
     customize: Callable[[dict[str, Any]], None] | None = None,
+    party_map: Mapping[str, str] | None = None,
+    version_suffix: str = "",
 ) -> dict[str, Any]:
     """Render, resolve and validate a contract template. Raises ``ValidationError``.
 
@@ -87,6 +133,8 @@ def build_contract(
     the final validation.
     """
     doc = load_template(template_path, env)
+    if party_map:  # slot mapping onto a fixed-party environment (see depa.deployment)
+        _map_parties(doc, party_map, version_suffix)
     if doc.get("schema") != CONTRACT_SCHEMA:
         raise ValidationError(f"template schema must be {CONTRACT_SCHEMA}", code="bad_template")
     current = now or utcnow()
@@ -114,7 +162,7 @@ def build_contract(
         datasets.append({"dataset_id": dataset_id, "version": version, "manifest_digest": manifest_digest})
     contract["datasets"] = datasets
     computation = dict(doc.get("computation") or {})
-    computation["recipes"] = _resolve_recipes(computation.get("recipes"), template_path.parent)
+    computation["recipes"] = _resolve_recipes(computation.get("recipes"), template_path.parent, party_map)
     if computation.get("tier") in (1, 2):
         computation.setdefault("custom_ccr", None)
     contract["computation"] = computation

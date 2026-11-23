@@ -96,6 +96,18 @@ the same code as the individual commands, so in production each party runs only 
    wait for the run in the CS (`--wait-timeout`);
 5. `run verify-receipt`, `model fetch` + `decrypt` with the TDC key.
 
+**Party slots.** When a scenario's native party ids are not parties of the environment (e.g. the
+fixed pilot set `tdc`, `tdp-1`…`tdp-4`), the scenario is mapped onto the environment's parties:
+the native TDC (`DEPA_TDC`, default `tdc`) → the env party with role `tdc`; the other native
+dataset owners, sorted by id → the env's `tdp` parties other than the TDC, sorted by id (more
+owners than slots: exit 2). Dataset ids, contract parties, recipe `inputs[].dataset_id` (and so the
+recipe digest), policies, output recipients and storage lookup all use the mapped ids; `prepare.sh
+--party` keeps the native id and plaintext source paths are unchanged. Mapped dataset versions get
+the suffix `.<scenario>` (e.g. `2026-11-01.credit-risk`) so scenarios sharing a slot never reuse
+each other's published data, and an existing version whose catalog `name` differs is refused. The
+mapping is printed and recorded as `party_map` in the summary. Envs listing the native ids (and dev
+mode) are unchanged.
+
 Each run writes `receipt-<run_id>.json` (CS-signed receipt JWS and its verified claims, public
 evidence only) into `--work-dir`; no other file there matches `*receipt*`.
 Python API: `depa.deployment.deploy_scenario(scenario, env, profile, DeployOptions(..., cancel=threading.Event()))`

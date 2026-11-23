@@ -13,7 +13,7 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,7 @@ from depa.clients.base import BaseClient
 from depa.clients.cs import CsClient
 from depa.clients.http import ServiceEndpoint
 from depa.clients.kms import KmsClient
-from depa.contract.authoring import DatasetTemplate, build_contract, load_dataset_template
+from depa.contract.authoring import DatasetTemplate, build_contract, load_dataset_template, map_dataset_id
 from depa.contract.recipe import load_recipe
 from depa.contract.verify import verify_contract
 from depa.contract.yamlio import load_template
@@ -243,6 +243,29 @@ def locate_dataset_template(
     return DatasetTemplate(descriptor=descriptor, policy=policy, source=template.source)
 
 
+def compute_party_map(native_owners: Iterable[str], native_tdc: str, env: DepaEnv) -> dict[str, str]:
+    """Map a scenario's native party ids onto the environment's parties (party slots).
+
+    Identity when every native id (dataset owners and the TDC) is a party of ``env``. Otherwise:
+    the native TDC -> the env's party with role ``tdc``; the other native dataset owners, sorted by
+    id -> the env's ``tdp`` parties other than the TDC, sorted by id. More owners than slots is a
+    configuration error (exit 2).
+    """
+    owners = set(native_owners)
+    env_ids = {p.party_id for p in env.parties}
+    if owners | {native_tdc} <= env_ids:
+        return {pid: pid for pid in sorted(owners | {native_tdc})}
+    tdc = _env_tdc(env)
+    others = sorted(owners - {native_tdc})
+    slots = sorted(p.party_id for p in env.parties_with("tdp") if p.party_id != tdc)
+    if len(others) > len(slots):
+        raise ConfigError(
+            f"the scenario has {len(others)} data providers {others} but the environment offers only "
+            f"{len(slots)} tdp slots {slots}"
+        )
+    return {native_tdc: tdc, **dict(zip(others, slots, strict=False))}
+
+
 class _Deployer:
     def __init__(self, scenario: Path, env: DepaEnv, profile: Profile, opts: DeployOptions, log: Log) -> None:
         self.scenario, self.env, self.profile, self.opts, self.log = scenario, env, profile, opts, log
@@ -250,6 +273,15 @@ class _Deployer:
         self.cs: CsClient = profile.cs_client()
         self.platform = PLATFORM_IDS[opts.platform]
         self.tdc = _env_tdc(env)
+        native = scenario_parties(scenario, {**os.environ, "DEPA_KMS_URL": self.kms.base_url})
+        native_tdc = next(p for p, roles in native.items() if "tdc" in roles)
+        native_owners = [p for p, roles in native.items() if "tdp" in roles]
+        self.party_map = compute_party_map(native_owners, native_tdc, env)
+        self.mapped = any(k != v for k, v in self.party_map.items())
+        self.native_of = {v: k for k, v in self.party_map.items()}
+        # Published versions of mapped datasets carry the scenario name, so another scenario mapped
+        # onto the same slot can never silently reuse them.
+        self.version_suffix = f".{scenario.name}" if self.mapped else ""
         self.template_env = {**os.environ, "DEPA_TDC": self.tdc, "DEPA_KMS_URL": self.kms.base_url}
         self.work = opts.work_dir or Path(tempfile.mkdtemp(prefix=f"depa-{scenario.name}-"))
         self.summary: dict[str, Any] = {
@@ -257,7 +289,10 @@ class _Deployer:
             "platform": self.platform,
             "steps": [],
             "skipped": [],
+            "party_map": self.party_map,
         }
+        if self.mapped:
+            log(f"party map {self.party_map} (dataset versions suffixed {self.version_suffix!r})")
 
     def acts_for(self, party_id: str) -> bool:
         selected = self.opts.parties is None or party_id in self.opts.parties
@@ -285,9 +320,20 @@ class _Deployer:
     # ---- TDP --------------------------------------------------------------------------------
 
     def dataset_template(self, path: Path) -> DatasetTemplate:
+        t = load_dataset_template(path, self.template_env)
+        if self.mapped:
+            mapped_id = map_dataset_id(t.dataset_id, self.party_map)
+            kid = str(t.descriptor.get("kms", {}).get("kid", ""))
+            descriptor = dict(
+                t.descriptor,
+                dataset_id=mapped_id,
+                version=t.version + self.version_suffix,
+                kms=dict(t.descriptor.get("kms") or {}, kid=mapped_id + kid[len(t.dataset_id) :]),
+            )
+            t = DatasetTemplate(descriptor=descriptor, policy=t.policy, source=t.source)
         return locate_dataset_template(
             self.env,
-            load_dataset_template(path, self.template_env),
+            t,
             kms_url=self.kms.base_url,
             tdc=self.tdc,
             platform=self.platform,
@@ -302,7 +348,14 @@ class _Deployer:
 
         if self.opts.prepare == "never":
             return
-        owners = sorted({dataset_owner(t.dataset_id) for t in templates if self.opts.prepare == "always" or missing(t)})
+        # prepare.sh is the scenario's own script: it takes the NATIVE party id.
+        owners = sorted(
+            {
+                self.native_of.get(dataset_owner(t.dataset_id), dataset_owner(t.dataset_id))
+                for t in templates
+                if self.opts.prepare == "always" or missing(t)
+            }
+        )
         per_party = self.scenario / "prepare" / "prepare.sh"
         fallback = self.scenario / "prepare" / "prepare_all.sh"
         runs = (
@@ -342,9 +395,16 @@ class _Deployer:
                     self.kms.set_policy(signer, t.dataset_id, t.policy)
                     self.step("dataset.policy-set", dataset_id=t.dataset_id)
             try:
-                self.cs.get_dataset_version(t.dataset_id, t.version)
+                published = self.cs.get_dataset_descriptor(t.dataset_id, t.version)
             except NotFoundError:
                 pending.append(t)
+                continue
+            if published.get("name") != t.descriptor.get("name"):
+                raise ValidationError(
+                    f"{t.dataset_id}@{t.version} is already published with different content "
+                    f"({published.get('name')!r}); refusing to reuse it",
+                    code="dataset_version_collision",
+                )
         if pending:
             self.prepare_data(pending)
         for t in pending:
@@ -384,7 +444,12 @@ class _Deployer:
             doc["output"]["location"] = {k: v for k, v in output_location.items() if v not in (None, {})}
 
         candidate = build_contract(
-            self.scenario / "contract.yaml", env=env, resolve_manifest=catalog_resolver(self.cs), customize=customize
+            self.scenario / "contract.yaml",
+            env=env,
+            resolve_manifest=catalog_resolver(self.cs),
+            customize=customize,
+            party_map=self.party_map if self.mapped else None,
+            version_suffix=self.version_suffix,
         )
         existing = self.find_reusable(candidate)
         if existing is not None:
