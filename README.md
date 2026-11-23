@@ -1,95 +1,121 @@
-# DEPA for Training
+# DEPA Training
 
-[DEPA for Training](https://depa.world) is a techno-legal framework that enables privacy-preserving sharing of bulk, de-identified datasets for large scale analytics and training. This repository contains a reference implementation of [Confidential Clean Rooms](https://depa.world/training/confidential_clean_room_design) (CCR), which together with the [Contract Service](https://github.com/iSPIRT/contract-service/tree/main), forms the basis of this framework. The reference implementation is provided on an As-Is basis. It is work-in-progress and should not be used in production.
+**Train AI models on many organisations' data without any of them giving their data away.**
 
-# Getting Started
+DEPA Training is a techno-legal framework and open digital public infrastructure for
+privacy-preserving model training on multi-party data. The model comes to the data:
+training runs inside hardware-attested *confidential clean rooms* (CCRs), and each data
+provider's data can be decrypted only inside a clean room that runs approved code, under a
+contract that provider has signed.
 
-## [New] Interactive Demo
+> Branch `sarang/training-v2` is the production-grade re-architecture (v2). The v1 proof of
+> concept remains on `main`.
 
-You can now try out DEPA-Training interactively using our [interactive GUI demo](./gui-demo/README.md). The demo requires a signed electronic contract and an Azure cloud subscription.
+## Why a new paradigm
 
-Start by setting up this project on GitHub Codespaces or your own development environment and then follow the [instructions](./gui-demo/README.md).
+Today, collaborating on data means **surrendering control**: data is copied to the consumer or to
+a third party, and from then on the provider must trust contracts and audits rather than
+technology. So the most valuable data, the sensitive data, stays locked away.
 
-## GitHub Codespaces
+| | Today | DEPA Training |
+|---|---|---|
+| Where data goes | Copied to the model owner or an intermediary | Stays in the provider's own storage. It is decrypted only inside an attested clean room. |
+| Who controls use | Whoever holds the copy | The provider. Keys are released per dataset, under the provider's own policy, to approved code only. |
+| Contracting | Bespoke bilateral deals: *m × n* contracts | Sign once with a Data Collaborative: *m + n* onboarding, then many-to-many engagements |
+| Enforcement | Legal recourse after the fact | Technical, before the fact (attestation, key release, purpose binding), plus legal |
+| Evidence | Self-reported | Signed, ledger-backed receipts for every training run |
 
-The simplest way to set up a development environment is using [GitHub Codespaces](https://github.com/codespaces). The repository includes a [devcontainer.json](.devcontainer/devcontainer.json), which customizes your codespace to install all required dependencies. Please ensure you allocate at least 8 vCPUs and 64GB disk space in your codespace. Also, run the following command in the codespace to update submodules.
+The result is that sensitive data can be **monetised without being exposed**. Data principals
+and fiduciaries can unlock economic value from data they hold, and data consumers gain access
+to training data that was previously out of reach.
 
-```bash
-git submodule update --init --recursive
+## Core principles
+
+1. **The model comes to the data.** Providers keep their storage. Plaintext exists only in TEE memory.
+2. **Control stays with the provider.** Every dataset has its own key and a release policy written by its owner. No consortium vote can relax it.
+3. **Purpose limitation, granularity, revocability, auditability.** Contracts bind a dataset to a
+   purpose, a recipe, a clean-room release, a time window and a number of runs. Owners can revoke or suspend at any time. Every run leaves verifiable receipts.
+4. **Verify, don't trust.** Operators of compute, storage and even the trust services are not
+   trusted with plaintext. Decisions depend on attestation and transparent, multi-party-governed ledgers.
+5. **Structured, checkable computation.** Training is expressed so it can be verified automatically:
+   declarative recipes first, graph-only models next, approved custom code last.
+6. **Open and multi-cloud.** Data can live on any cloud. Clean rooms run on Azure and GCP confidential computing. The trust services are open source.
+
+## Actors
+
+| Actor | Role |
+|---|---|
+| **Training Data Provider (TDP)** | Owns datasets. Encrypts them, sets key-release policies, signs contracts, can revoke. |
+| **Training Data Consumer (TDC)** | Wants a model. Proposes contracts and recipes, receives outputs according to the contract. |
+| **Data Collaborative (DC)** | A self-regulated consortium. Operates the Contract Service and KMS, admits members, approves clean-room releases. |
+| **Clean-room provider (CCRP)** | Optional vendor that runs clean rooms for a TDC. Never sees plaintext. |
+| **Auditor / regulator** | Reads the ledgers and receipts. May be a DC member. |
+
+## Architecture at a glance
+
+```
+ GOVERNANCE PLANE — operated by the Data Collaborative (CCF apps on Azure Confidential Ledger)
+   Contract Service: parties, dataset catalogue, contracts, run authorisation, execution receipts
+   KMS:              per-dataset keys + owner policies, single atomic key-release check, OIDC issuer
+        ▲ sign / set policy          ▲ attest → authorise run → release keys / storage tokens
+ DATA PLANE (each TDP)          COMPUTE PLANE (TDC or CCRP — untrusted operator)
+   own storage on any cloud       time-bound clean rooms: AKS + virtual nodes → confidential ACI (SEV-SNP)
+   client-side encrypted          or GCP Confidential Space (Intel TDX)
+   IAM trusts only KMS tokens     one run of one contract, then gone
 ```
 
-## Local Development Environment
+See [docs/architecture.md](docs/architecture.md) for the full design,
+[docs/threat-model.md](docs/threat-model.md) for what is protected against whom, and
+[docs/data-collaboratives.md](docs/data-collaboratives.md) for the market architecture.
 
-Alternatively, you can build and develop locally in a Linux environment (we have tested with Ubuntu 20.04, 22.04, 24.04), or Windows with WSL 2.
+## Repositories
 
-Clone this repo to your local machine / virtual machine as follows.
+| Repository | Contents |
+|---|---|
+| [`depa-training`](.) (this repo) | Clean-room runtime, training runtime (`trainers/`), SDK and `depa` CLI (`sdk/`), Terraform for providers and consumers (`deploy/`), clean-room images and releases (`ccr/`), scenarios, docs |
+| [`contract-service`](https://github.com/prescera/contract-service) | Contract Service CCF app and its Azure Terraform |
+| [`depa-training-kms-azure`](https://github.com/prescera/depa-training-kms-azure) | KMS CCF app (based on the DEPA-inferencing KMS) and its Azure Terraform |
 
-```bash
-git clone --recursive http://github.com/iSPIRT/depa-training
-cd depa-training
+## Layout of this repository
+
+```
+docs/            architecture, threat model, data collaboratives, protocol spec, guides
+sdk/python/      `depa` SDK + CLI + clean-room agent (`depa-ccr`)
+trainers/        `depa-train`: tiered, declarative training runtime and plugins
+ccr/             clean-room image build, CCE policy inputs, release manifests
+deploy/          Terraform: TDP storage + federation, TDC compute (AKS/VN2, GCP CS), DC composition
+scenarios/       end-to-end examples: recipe, dataset descriptors, contract template, prep scripts
+tests/e2e/       local end-to-end tests (CCF sandboxes + virtual clean room)
+gui/             minimal web console over the SDK
 ```
 
-Install the required dependencies by running the [install-prerequisites.sh](./install-prerequisites.sh) script.
+## Quick start
 
-```bash
-./install-prerequisites.sh
-```
+- **Local, no cloud:** [docs/guides/quickstart.md](docs/guides/quickstart.md). Runs both trust
+  services in CCF sandboxes, then a full scenario (encrypt → contract → clean-room run →
+  receipts → model) with a development-only virtual clean room.
+- **Azure, one click:** after a one-time setup, the **Pilot · end-to-end demo** workflow deploys a
+  complete collaborative and runs a scenario. See [docs/guides/azure-pilot.md](docs/guides/azure-pilot.md).
+- **Console:** `depa-console` is a minimal local web UI over the SDK, acting as one party at a
+  time ([gui/README.md](gui/README.md)).
 
-Note: You may need to restart your machine to ensure that the changes take effect.
+## Scenarios
 
-## Build CCR containers
+| Scenario | Task | Tier / family | Privacy | TDPs |
+|---|---|---|---|---|
+| [COVID-19](scenarios/covid) | Binary classification, horizontal join of tabular data | 1 / torch | DP-SGD | 3 |
+| [BraTS](scenarios/brats) | MRI tumour segmentation (UNet) | 1 / torch | DP-SGD | 4 |
+| [Credit risk](scenarios/credit-risk) | XGBoost, joins across banks, bureau and fintech | 1 / classic | DP | 4 |
+| [CIFAR-10](scenarios/cifar10) | Image classification (CNN) | 1 / torch | none | 1 |
+| [MNIST](scenarios/mnist) | Image classification (CNN) | 1 / torch | none | 1 |
+| [LLM SFT](scenarios/llm-sft) | LoRA fine-tuning of a small language model (CPU) | 1 / llm | optional | 2 |
 
-To build your own Confidential Cleanroom (CCR) container images, use the following command from the root of the repository.
+## Status
 
-```bash
-./ci/build.sh
-```
+v2 is under active development for production pilots. Read the threat model's residual risks
+before relying on it. Differential privacy is supported but treated as an additional safeguard,
+not the primary control.
 
-This scripts build the following containers.
+## Contributing
 
-- ```depa-training```: Container with the core CCR logic for joining datasets and running differentially private training.
-- ```depa-training-encfs```: Container for loading encrypted data into the CCR.
-
-Alternatively, you can pull and use pre-built container images from the iSPIRT container registry by setting the following environment variable. Docker hub has started throttling which may affect the upload/download time, especially when images are bigger size. So, It is advisable to use other container registries. We are using Azure container registry (ACR) as shown below:
-
-```bash
-export CONTAINER_REGISTRY=ispirt.azurecr.io
-./ci/pull-containers.sh
-```
-
-# Scenarios
-
-This repository contains sample demos illustrating a diverse set of scenarios that DEPA for Training can support.
-
-Follow the links to build and deploy these scenarios.
-
-| Scenario name | Scenario type | Task type | Privacy | No. of TDPs* | Data type (format) | Model type (format) | Join type (No. of datasets) |
-|--------------|---------------|-----------------|--------------|-----------|------------|------------|------------|
-| [COVID-19](./scenarios/covid/README.md) | Training - Deep Learning | Binary Classification | Differentially Private | 3 | PII tabular data (CSV) | MLP (ONNX) | Horizontal (3)|
-| [BraTS](./scenarios/brats/README.md) | Training - Deep Learning | Image Segmentation | Differentially Private | 4 | MRI scans data (NIfTI/PNG) | UNet (Safetensors) | Vertical (4)|
-| [Credit Risk](./scenarios/credit-risk/README.md) | Training - Classical ML | Binary Classification | Differentially Private | 4 | PII tabular data (Parquet) | XGBoost (JSON) | Horizontal (6)|
-| [CIFAR-10](./scenarios/cifar10/README.md) | Training - Deep Learning | Multi-class Image Classification | NA | 1 | Non-PII image data (SafeTensors) | CNN (Safetensors) | NA (1)|
-| [MNIST](./scenarios/mnist/README.md) | Training - Deep Learning | Multi-class Image Classification | NA | 1 | Non-PII image data (HDF5) | CNN (ONNX) | NA (1)|
-
-_NA: Not Applicable_ <br>
-_DL: Deep Learning, ML: Classical Machine Learning_ <br>
-_*Training Data Providers (TDPs) involved in the scenario._
-
-## Build your own Scenarios
-
-A guide to build your own scenarios is available [here](./build-your-own-scenario/README.md). Follow the steps to build and run your own unique training scenario!
-
-Currently, DEPA for Training supports the following training frameworks, libraries and file formats (more will be included soon):
-
-- Training frameworks: PyTorch, Scikit-learn, XGBoost
-- Libraries: Opacus, PySpark, Pandas
-- File formats (for models and datasets): ONNX, Safetensors, Parquet, CSV, HDF5, PNG
-
-Note: Due to security reasons, we do not support Pickle based file formats such as .pkl, .pt/.pth, .npy/.npz, .joblib, etc.
-
-
-# Contributing
-
-This project welcomes feedback and contributions. Before you start, please take a moment to review our [Contribution Guidelines](./CONTRIBUTING.md). These guidelines provide information on how to contribute, set up your development environment, and submit your changes.
-
-We look forward to your contributions and appreciate your efforts in making DEPA Training better for everyone.
+See [CONTRIBUTING.md](CONTRIBUTING.md).

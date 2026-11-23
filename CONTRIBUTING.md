@@ -5,7 +5,7 @@ Thank you for considering contributing to DEPA for Training! We appreciate your 
 ## Getting Started
 
 1. **Fork the Repository:**
-   - Fork the [DEPA for Training](https://github.com/ispirt/depa-training) repository on GitHub.
+   - Fork the [DEPA for Training](https://github.com/prescera/depa-training) repository on GitHub.
    - Clone your forked repository to your local machine:
      ```
      git clone https://github.com/your-username/depa-training.git
@@ -38,7 +38,7 @@ Thank you for considering contributing to DEPA for Training! We appreciate your 
      ```
 
 7. **Pull Request:**
-   - Open a pull request on the [DEPA for Training](https://github.com/ispirt/depa-training) and provide a detailed description of your changes.
+   - Open a pull request on the [DEPA for Training](https://github.com/prescera/depa-training) and provide a detailed description of your changes.
    - Reference any relevant issues in your pull request.
 
 ## Contribution Guidelines
@@ -56,7 +56,7 @@ Thank you for considering contributing to DEPA for Training! We appreciate your 
    - Test your changes across different environments if applicable.
 
 4. **Issue Tracker:**
-   - Check the [issue tracker](https://github.com/ispirt/depa-training/issues) for open issues.
+   - Check the [issue tracker](https://github.com/prescera/depa-training/issues) for open issues.
    - If you plan to work on an issue, comment on it to let others know.
 
 5. **Be Respectful:**
