@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "SqlTable": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Input",
+          "type": "string"
+        },
+        "files": {
+          "default": "*",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Files",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "csv",
+            "parquet",
+            "jsonl",
+            "arrow"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+                "type": "string"
+              },
+              "maxItems": 4096,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Columns"
+        },
+        "name": {
+          "description": "view name used in the query",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "format",
+        "name"
+      ],
+      "title": "SqlTable",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "tables": {
+      "items": {
+        "$ref": "#/$defs/SqlTable"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Tables",
+      "type": "array"
+    },
+    "query": {
+      "maxLength": 65536,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "privacy_unit": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "column identifying the individual; the run fails if a value repeats or is null",
+      "title": "Privacy Unit"
+    },
+    "threads": {
+      "anyOf": [
+        {
+          "maximum": 256,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Threads"
+    },
+    "memory_limit_mb": {
+      "default": 8192,
+      "maximum": 1048576,
+      "minimum": 64,
+      "title": "Memory Limit Mb",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tables",
+    "query"
+  ],
+  "title": "sql/duckdb@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "sql/duckdb",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "classic",
+      "llm",
+      "torch"
+    ],
+    "experimental": false
+  }
+}

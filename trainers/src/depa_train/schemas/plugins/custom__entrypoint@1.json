@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "OutputTarget": {
+      "additionalProperties": false,
+      "description": "Where a step writes a model: a declared recipe output and its format.",
+      "properties": {
+        "output": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Output",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "format"
+      ],
+      "title": "OutputTarget",
+      "type": "object"
+    },
+    "PrivacyShare": {
+      "additionalProperties": false,
+      "description": "Part of the recipe's DP budget assigned to one training step.",
+      "properties": {
+        "epsilon": {
+          "exclusiveMinimum": 0,
+          "title": "Epsilon",
+          "type": "number"
+        },
+        "delta": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Delta",
+          "type": "number"
+        }
+      },
+      "required": [
+        "epsilon",
+        "delta"
+      ],
+      "title": "PrivacyShare",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "description": "argv; command[0] is an absolute path",
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "title": "Command",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/OutputTarget"
+      },
+      "maxItems": 16,
+      "title": "Outputs",
+      "type": "array"
+    },
+    "metrics": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "env": {
+      "patternProperties": {
+        "^[A-Z][A-Z0-9_]{0,63}$": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "title": "Env",
+      "type": "object"
+    },
+    "timeout_seconds": {
+      "default": 86400,
+      "maximum": 604800,
+      "minimum": 1,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "privacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PrivacyShare"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "command"
+  ],
+  "title": "custom/entrypoint@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "custom/entrypoint",
+    "version": "1.0.0",
+    "tier": 3,
+    "families": [
+      "custom"
+    ],
+    "experimental": false
+  }
+}

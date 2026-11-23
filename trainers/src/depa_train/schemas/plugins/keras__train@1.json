@@ -1,0 +1,468 @@
+{
+  "$defs": {
+    "ImageFolder": {
+      "additionalProperties": false,
+      "description": "Classification images in one sub-directory per class (classes are declared, hence public).",
+      "properties": {
+        "kind": {
+          "const": "image_folder",
+          "title": "Kind",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "classes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "minItems": 2,
+          "title": "Classes",
+          "type": "array"
+        },
+        "size": {
+          "description": "height, width after resizing",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "grayscale": {
+          "default": false,
+          "title": "Grayscale",
+          "type": "boolean"
+        },
+        "splits": {
+          "$ref": "#/$defs/Splits"
+        },
+        "max_samples": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Samples"
+        }
+      },
+      "required": [
+        "kind",
+        "inputs",
+        "classes",
+        "size",
+        "splits"
+      ],
+      "title": "ImageFolder",
+      "type": "object"
+    },
+    "ImagePairs": {
+      "additionalProperties": false,
+      "description": "Image/mask pairs (segmentation), one sample directory per case, across several inputs.",
+      "properties": {
+        "kind": {
+          "const": "image_pairs",
+          "title": "Kind",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "samples": {
+          "description": "glob of sample directories inside each input",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Samples",
+          "type": "string"
+        },
+        "image": {
+          "description": "glob of the image file inside a sample directory",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Image",
+          "type": "string"
+        },
+        "mask": {
+          "description": "glob of the mask file inside a sample directory",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Mask",
+          "type": "string"
+        },
+        "format": {
+          "default": "png",
+          "enum": [
+            "png",
+            "nifti"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "mask_threshold": {
+          "default": 0.0,
+          "title": "Mask Threshold",
+          "type": "number"
+        },
+        "skip_empty_masks": {
+          "default": false,
+          "title": "Skip Empty Masks",
+          "type": "boolean"
+        },
+        "splits": {
+          "$ref": "#/$defs/Splits"
+        },
+        "max_samples": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Samples"
+        }
+      },
+      "required": [
+        "kind",
+        "inputs",
+        "samples",
+        "image",
+        "mask",
+        "splits"
+      ],
+      "title": "ImagePairs",
+      "type": "object"
+    },
+    "KerasOptimizer": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "KerasOptimizer",
+      "type": "object"
+    },
+    "OutputTarget": {
+      "additionalProperties": false,
+      "description": "Where a step writes a model: a declared recipe output and its format.",
+      "properties": {
+        "output": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Output",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "format"
+      ],
+      "title": "OutputTarget",
+      "type": "object"
+    },
+    "Splits": {
+      "additionalProperties": false,
+      "description": "Train/validation/test fractions (must sum to 1).",
+      "properties": {
+        "train": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Train",
+          "type": "number"
+        },
+        "val": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Val",
+          "type": "number"
+        },
+        "test": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Test",
+          "type": "number"
+        }
+      },
+      "required": [
+        "train"
+      ],
+      "title": "Splits",
+      "type": "object"
+    },
+    "TabularRef": {
+      "additionalProperties": false,
+      "description": "Feature matrices from a ``tabular/split`` step.",
+      "properties": {
+        "kind": {
+          "const": "tabular",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "step"
+      ],
+      "title": "TabularRef",
+      "type": "object"
+    },
+    "TensorFile": {
+      "additionalProperties": false,
+      "description": "Feature/target arrays stored in one safetensors or HDF5 file of an input dataset.",
+      "properties": {
+        "kind": {
+          "const": "tensors",
+          "title": "Kind",
+          "type": "string"
+        },
+        "input": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Input",
+          "type": "string"
+        },
+        "file": {
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "File",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "hdf5"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "features_key": {
+          "default": "features",
+          "pattern": "^[A-Za-z0-9_./-]{1,128}$",
+          "title": "Features Key",
+          "type": "string"
+        },
+        "targets_key": {
+          "default": "targets",
+          "pattern": "^[A-Za-z0-9_./-]{1,128}$",
+          "title": "Targets Key",
+          "type": "string"
+        },
+        "splits": {
+          "$ref": "#/$defs/Splits"
+        },
+        "max_samples": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Samples"
+        }
+      },
+      "required": [
+        "kind",
+        "input",
+        "file",
+        "format",
+        "splits"
+      ],
+      "title": "TensorFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "discriminator": {
+        "mapping": {
+          "image_folder": "#/$defs/ImageFolder",
+          "image_pairs": "#/$defs/ImagePairs",
+          "tabular": "#/$defs/TabularRef",
+          "tensors": "#/$defs/TensorFile"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TabularRef"
+        },
+        {
+          "$ref": "#/$defs/TensorFile"
+        },
+        {
+          "$ref": "#/$defs/ImagePairs"
+        },
+        {
+          "$ref": "#/$defs/ImageFolder"
+        }
+      ],
+      "title": "Data"
+    },
+    "task": {
+      "enum": [
+        "binary",
+        "multiclass",
+        "regression",
+        "segmentation"
+      ],
+      "title": "Task",
+      "type": "string"
+    },
+    "model": {
+      "additionalProperties": true,
+      "description": "Keras model config (model.to_json())",
+      "title": "Model",
+      "type": "object"
+    },
+    "loss": {
+      "title": "Loss",
+      "type": "string"
+    },
+    "optimizer": {
+      "$ref": "#/$defs/KerasOptimizer"
+    },
+    "epochs": {
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "Epochs",
+      "type": "integer"
+    },
+    "batch_size": {
+      "maximum": 65536,
+      "minimum": 1,
+      "title": "Batch Size",
+      "type": "integer"
+    },
+    "backend": {
+      "default": "torch",
+      "enum": [
+        "torch",
+        "jax"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "output_activation": {
+      "default": "none",
+      "enum": [
+        "none",
+        "sigmoid",
+        "softmax"
+      ],
+      "title": "Output Activation",
+      "type": "string"
+    },
+    "save": {
+      "$ref": "#/$defs/OutputTarget"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "data",
+    "task",
+    "model",
+    "loss",
+    "optimizer",
+    "epochs",
+    "batch_size",
+    "save"
+  ],
+  "title": "keras/train@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "keras/train",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "torch"
+    ],
+    "experimental": false
+  }
+}

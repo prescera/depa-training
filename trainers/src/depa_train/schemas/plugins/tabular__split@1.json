@@ -1,0 +1,379 @@
+{
+  "$defs": {
+    "Categorical": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "encoding": {
+          "default": "onehot",
+          "enum": [
+            "onehot",
+            "ordinal"
+          ],
+          "title": "Encoding",
+          "type": "string"
+        },
+        "categories": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "declared category values per column (required under DP)",
+          "title": "Categories"
+        }
+      },
+      "required": [
+        "columns"
+      ],
+      "title": "Categorical",
+      "type": "object"
+    },
+    "FileTable": {
+      "additionalProperties": false,
+      "description": "Files of one input dataset read as a single table (all files must share a schema).",
+      "properties": {
+        "input": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Input",
+          "type": "string"
+        },
+        "files": {
+          "default": "*",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Files",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "csv",
+            "parquet",
+            "jsonl",
+            "arrow"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+                "type": "string"
+              },
+              "maxItems": 4096,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Columns"
+        }
+      },
+      "required": [
+        "input",
+        "format"
+      ],
+      "title": "FileTable",
+      "type": "object"
+    },
+    "Missing": {
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "default": "drop",
+          "enum": [
+            "drop",
+            "constant",
+            "mean",
+            "median"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "Missing",
+      "type": "object"
+    },
+    "Splits": {
+      "additionalProperties": false,
+      "description": "Train/validation/test fractions (must sum to 1).",
+      "properties": {
+        "train": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Train",
+          "type": "number"
+        },
+        "val": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Val",
+          "type": "number"
+        },
+        "test": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Test",
+          "type": "number"
+        }
+      },
+      "required": [
+        "train"
+      ],
+      "title": "Splits",
+      "type": "object"
+    },
+    "StepRef": {
+      "additionalProperties": false,
+      "description": "Reference to the artifact produced by an earlier step.",
+      "properties": {
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StepRef"
+        },
+        {
+          "$ref": "#/$defs/FileTable"
+        }
+      ],
+      "title": "Source"
+    },
+    "target": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+      "title": "Target",
+      "type": "string"
+    },
+    "task": {
+      "enum": [
+        "classification",
+        "regression"
+      ],
+      "title": "Task",
+      "type": "string"
+    },
+    "features": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Features"
+    },
+    "drop": {
+      "items": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+        "type": "string"
+      },
+      "maxItems": 4096,
+      "title": "Drop",
+      "type": "array"
+    },
+    "missing": {
+      "$ref": "#/$defs/Missing"
+    },
+    "categorical": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Categorical"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "bounds": {
+      "description": "public [low, high] per numeric column; values are clipped",
+      "patternProperties": {
+        "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        }
+      },
+      "title": "Bounds",
+      "type": "object"
+    },
+    "default_bounds": {
+      "anyOf": [
+        {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "bounds for numeric columns not in 'bounds'",
+      "title": "Default Bounds"
+    },
+    "scale": {
+      "default": "none",
+      "enum": [
+        "none",
+        "standard",
+        "minmax"
+      ],
+      "title": "Scale",
+      "type": "string"
+    },
+    "classes": {
+      "anyOf": [
+        {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "minItems": 2,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "declared label values",
+      "title": "Classes"
+    },
+    "splits": {
+      "$ref": "#/$defs/Splits"
+    },
+    "stratify": {
+      "default": false,
+      "title": "Stratify",
+      "type": "boolean"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "source",
+    "target",
+    "task",
+    "splits"
+  ],
+  "title": "tabular/split@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "tabular/split",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "classic",
+      "llm",
+      "torch"
+    ],
+    "experimental": false
+  }
+}

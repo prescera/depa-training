@@ -1,0 +1,241 @@
+{
+  "$defs": {
+    "OutputTarget": {
+      "additionalProperties": false,
+      "description": "Where a step writes a model: a declared recipe output and its format.",
+      "properties": {
+        "output": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Output",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "format"
+      ],
+      "title": "OutputTarget",
+      "type": "object"
+    },
+    "PrivacyShare": {
+      "additionalProperties": false,
+      "description": "Part of the recipe's DP budget assigned to one training step.",
+      "properties": {
+        "epsilon": {
+          "exclusiveMinimum": 0,
+          "title": "Epsilon",
+          "type": "number"
+        },
+        "delta": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Delta",
+          "type": "number"
+        }
+      },
+      "required": [
+        "epsilon",
+        "delta"
+      ],
+      "title": "PrivacyShare",
+      "type": "object"
+    },
+    "StepRef": {
+      "additionalProperties": false,
+      "description": "Reference to the artifact produced by an earlier step.",
+      "properties": {
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    },
+    "XGBParams": {
+      "additionalProperties": false,
+      "properties": {
+        "max_depth": {
+          "default": 6,
+          "maximum": 16,
+          "minimum": 1,
+          "title": "Max Depth",
+          "type": "integer"
+        },
+        "learning_rate": {
+          "default": 0.3,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "lambda": {
+          "default": 1.0,
+          "minimum": 0,
+          "title": "Lambda",
+          "type": "number"
+        },
+        "min_child_weight": {
+          "default": 1.0,
+          "minimum": 0,
+          "title": "Min Child Weight",
+          "type": "number"
+        },
+        "subsample": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Subsample",
+          "type": "number"
+        },
+        "colsample_bytree": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Colsample Bytree",
+          "type": "number"
+        },
+        "gamma": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Gamma",
+          "type": "number"
+        },
+        "max_bin": {
+          "default": 256,
+          "maximum": 1024,
+          "minimum": 2,
+          "title": "Max Bin",
+          "type": "integer"
+        },
+        "scale_pos_weight": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scale Pos Weight"
+        },
+        "base_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Score"
+        }
+      },
+      "title": "XGBParams",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/StepRef"
+    },
+    "objective": {
+      "default": "binary:logistic",
+      "enum": [
+        "binary:logistic",
+        "multi:softprob",
+        "reg:squarederror",
+        "reg:absoluteerror"
+      ],
+      "title": "Objective",
+      "type": "string"
+    },
+    "num_boost_round": {
+      "default": 100,
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "Num Boost Round",
+      "type": "integer"
+    },
+    "params": {
+      "$ref": "#/$defs/XGBParams"
+    },
+    "early_stopping_rounds": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Early Stopping Rounds"
+    },
+    "privacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PrivacyShare"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "save": {
+      "$ref": "#/$defs/OutputTarget"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "data",
+    "save"
+  ],
+  "title": "xgboost/train@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "xgboost/train",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "classic"
+    ],
+    "experimental": false
+  }
+}

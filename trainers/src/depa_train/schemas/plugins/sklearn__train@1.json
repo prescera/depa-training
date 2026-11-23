@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "OutputTarget": {
+      "additionalProperties": false,
+      "description": "Where a step writes a model: a declared recipe output and its format.",
+      "properties": {
+        "output": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Output",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "format"
+      ],
+      "title": "OutputTarget",
+      "type": "object"
+    },
+    "SklearnComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+          "title": "Class",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "class"
+      ],
+      "title": "SklearnComponent",
+      "type": "object"
+    },
+    "StepRef": {
+      "additionalProperties": false,
+      "description": "Reference to the artifact produced by an earlier step.",
+      "properties": {
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/StepRef"
+    },
+    "estimator": {
+      "$ref": "#/$defs/SklearnComponent"
+    },
+    "preprocess": {
+      "items": {
+        "$ref": "#/$defs/SklearnComponent"
+      },
+      "maxItems": 16,
+      "title": "Preprocess",
+      "type": "array"
+    },
+    "save": {
+      "$ref": "#/$defs/OutputTarget"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "data",
+    "estimator",
+    "save"
+  ],
+  "title": "sklearn/train@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "sklearn/train",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "classic"
+    ],
+    "experimental": false
+  }
+}

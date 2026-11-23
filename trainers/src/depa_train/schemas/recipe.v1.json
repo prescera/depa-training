@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "InputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "alias": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Alias",
+          "type": "string"
+        },
+        "dataset_id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,127}$",
+          "title": "Dataset Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias",
+        "dataset_id"
+      ],
+      "title": "InputSpec",
+      "type": "object"
+    },
+    "OutputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "format"
+      ],
+      "title": "OutputSpec",
+      "type": "object"
+    },
+    "PrivacySpec": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "dp"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "epsilon": {
+                "type": "number"
+              },
+              "delta": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "epsilon",
+              "delta"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "epsilon"
+                  ]
+                },
+                {
+                  "required": [
+                    "delta"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "dp",
+            "none"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "epsilon": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epsilon"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "PrivacySpec",
+      "type": "object"
+    },
+    "StepSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "uses": {
+          "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*@[0-9]{1,4}$",
+          "title": "Uses",
+          "type": "string"
+        },
+        "with": {
+          "additionalProperties": true,
+          "title": "With",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "uses"
+      ],
+      "title": "StepSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "depa-training/recipe/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "tier": {
+      "enum": [
+        1,
+        2,
+        3
+      ],
+      "title": "Tier",
+      "type": "integer"
+    },
+    "family": {
+      "enum": [
+        "classic",
+        "torch",
+        "llm",
+        "custom"
+      ],
+      "title": "Family",
+      "type": "string"
+    },
+    "inputs": {
+      "items": {
+        "$ref": "#/$defs/InputSpec"
+      },
+      "maxItems": 64,
+      "title": "Inputs",
+      "type": "array"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/StepSpec"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "privacy": {
+      "$ref": "#/$defs/PrivacySpec"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/OutputSpec"
+      },
+      "maxItems": 16,
+      "title": "Outputs",
+      "type": "array"
+    },
+    "metrics": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Metrics",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "tier",
+    "family",
+    "inputs",
+    "steps",
+    "privacy",
+    "outputs"
+  ],
+  "title": "DEPA Training recipe v1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://depa.world/schemas/depa-training/recipe/v1.json"
+}

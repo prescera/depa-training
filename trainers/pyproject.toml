@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "depa-train"
+version = "2.0.0"
+description = "DEPA Training v2 training runtime: tiered, declarative, fail-closed trainers for confidential clean rooms"
+readme = "README.md"
+license = "CC0-1.0"
+requires-python = ">=3.11"
+authors = [{ name = "DEPA Foundation" }]
+# Core: recipe parsing, validation, registry and CLI. Must stay light: the clean-room agent
+# imports depa_train.api in its own environment to validate recipes against contracts.
+dependencies = [
+  "jsonschema>=4.21",
+  "pydantic>=2.7",
+  "pyyaml>=6.0",
+  "sqlglot>=25.0",
+]
+
+[project.optional-dependencies]
+# Shared data stack used by every training family (SQL joins, tabular prep, metrics).
+data = [
+  "duckdb>=2.0",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "pyarrow>=16",
+  "scikit-learn>=1.5",
+  "h5py>=3.10",
+]
+classic = [
+  "depa-train[data]",
+  # dp-xgboost (Sarus) 0.2.10 only supports the NumPy 1.x C-API surface and imports pkg_resources.
+  "numpy>=1.26,<2",
+  "pyarrow<26",  # pyarrow 26 requires NumPy 2
+  "setuptools<81",
+  "dp-xgboost==0.2.10",
+  "skops>=0.10",
+  "xgboost-cpu>=2.1",
+]
+torch = [
+  "depa-train[data]",
+  "torch>=2.5",
+  "torchvision>=0.20",
+  "opacus>=1.5",
+  "safetensors>=0.4",
+  "onnx>=1.16",
+  "onnxscript>=0.1",
+  "pillow>=10",
+  "nibabel>=5",
+  "timm>=1.0",
+  "monai>=1.4",
+  "keras>=3.6",
+  "lightning>=2.4",
+]
+llm = [
+  "depa-train[data]",
+  "torch>=2.5",
+  "opacus>=1.5",
+  "safetensors>=0.4",
+  "transformers>=4.46",
+  "tokenizers>=0.20",
+  "peft>=0.13",
+]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+depa-train = "depa_train.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+depa_train = ["schemas/*.json", "schemas/plugins/*.json"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PL", "PT", "C4", "RET"]
+ignore = [
+  "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",  # complexity heuristics
+  "S101",                                                 # asserts in tests
+  "S603",                                                 # subprocess without shell (tier-3 entrypoint, tests)
+  "RUF012",
+  "PLC0415",                                              # heavy frameworks are imported lazily by design
+  "SIM905",                                               # allowlists are written as readable word lists
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["depa_train", "conftest"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLW", "PT011", "PT018", "PLR0917"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["slow: longer smoke runs"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning", "ignore::FutureWarning"]

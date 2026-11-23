@@ -1,0 +1,430 @@
+{
+  "$defs": {
+    "BaseModelRef": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Input",
+          "type": "string"
+        },
+        "path": {
+          "default": ".",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input"
+      ],
+      "title": "BaseModelRef",
+      "type": "object"
+    },
+    "FileTable": {
+      "additionalProperties": false,
+      "description": "Files of one input dataset read as a single table (all files must share a schema).",
+      "properties": {
+        "input": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Input",
+          "type": "string"
+        },
+        "files": {
+          "default": "*",
+          "pattern": "^[A-Za-z0-9_.\\-*?\\[\\]][A-Za-z0-9_.\\-*?\\[\\]/]{0,254}$",
+          "title": "Files",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "csv",
+            "parquet",
+            "jsonl",
+            "arrow"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+                "type": "string"
+              },
+              "maxItems": 4096,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Columns"
+        }
+      },
+      "required": [
+        "input",
+        "format"
+      ],
+      "title": "FileTable",
+      "type": "object"
+    },
+    "LoraSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "r": {
+          "default": 8,
+          "maximum": 256,
+          "minimum": 1,
+          "title": "R",
+          "type": "integer"
+        },
+        "alpha": {
+          "default": 16,
+          "exclusiveMinimum": 0,
+          "title": "Alpha",
+          "type": "number"
+        },
+        "dropout": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Dropout",
+          "type": "number"
+        },
+        "target_modules": {
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Target Modules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target_modules"
+      ],
+      "title": "LoraSpec",
+      "type": "object"
+    },
+    "OutputTarget": {
+      "additionalProperties": false,
+      "description": "Where a step writes a model: a declared recipe output and its format.",
+      "properties": {
+        "output": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Output",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "safetensors",
+            "onnx",
+            "xgboost-json",
+            "xgboost-ubj",
+            "skops",
+            "keras"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output",
+        "format"
+      ],
+      "title": "OutputTarget",
+      "type": "object"
+    },
+    "PlainText": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "text",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text_field": {
+          "default": "text",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+          "title": "Text Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PlainText",
+      "type": "object"
+    },
+    "PrivacyShare": {
+      "additionalProperties": false,
+      "description": "Part of the recipe's DP budget assigned to one training step.",
+      "properties": {
+        "epsilon": {
+          "exclusiveMinimum": 0,
+          "title": "Epsilon",
+          "type": "number"
+        },
+        "delta": {
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Delta",
+          "type": "number"
+        }
+      },
+      "required": [
+        "epsilon",
+        "delta"
+      ],
+      "title": "PrivacyShare",
+      "type": "object"
+    },
+    "PromptCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "prompt_completion",
+          "title": "Kind",
+          "type": "string"
+        },
+        "prompt_field": {
+          "default": "prompt",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+          "title": "Prompt Field",
+          "type": "string"
+        },
+        "completion_field": {
+          "default": "completion",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.\\- ]{0,127}$",
+          "title": "Completion Field",
+          "type": "string"
+        },
+        "template": {
+          "default": "{prompt}",
+          "description": "must contain '{prompt}' once",
+          "maxLength": 2048,
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PromptCompletion",
+      "type": "object"
+    },
+    "SftTraining": {
+      "additionalProperties": false,
+      "properties": {
+        "epochs": {
+          "default": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "max_steps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Steps"
+        },
+        "batch_size": {
+          "default": 8,
+          "maximum": 1024,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "gradient_accumulation": {
+          "default": 1,
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Gradient Accumulation",
+          "type": "integer"
+        },
+        "learning_rate": {
+          "default": 0.0002,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "weight_decay": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Weight Decay",
+          "type": "number"
+        },
+        "warmup_ratio": {
+          "default": 0.0,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "title": "Warmup Ratio",
+          "type": "number"
+        },
+        "scheduler": {
+          "default": "linear",
+          "enum": [
+            "linear",
+            "cosine",
+            "constant"
+          ],
+          "title": "Scheduler",
+          "type": "string"
+        },
+        "max_grad_norm": {
+          "default": 1.0,
+          "description": "gradient clipping (per-sample under DP)",
+          "exclusiveMinimum": 0,
+          "title": "Max Grad Norm",
+          "type": "number"
+        }
+      },
+      "title": "SftTraining",
+      "type": "object"
+    },
+    "StepRef": {
+      "additionalProperties": false,
+      "description": "Reference to the artifact produced by an earlier step.",
+      "properties": {
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "base_model": {
+      "$ref": "#/$defs/BaseModelRef"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StepRef"
+        },
+        {
+          "$ref": "#/$defs/FileTable"
+        }
+      ],
+      "title": "Data"
+    },
+    "format": {
+      "discriminator": {
+        "mapping": {
+          "prompt_completion": "#/$defs/PromptCompletion",
+          "text": "#/$defs/PlainText"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PromptCompletion"
+        },
+        {
+          "$ref": "#/$defs/PlainText"
+        }
+      ],
+      "title": "Format"
+    },
+    "max_seq_len": {
+      "default": 512,
+      "maximum": 8192,
+      "minimum": 16,
+      "title": "Max Seq Len",
+      "type": "integer"
+    },
+    "completion_only_loss": {
+      "default": true,
+      "title": "Completion Only Loss",
+      "type": "boolean"
+    },
+    "lora": {
+      "$ref": "#/$defs/LoraSpec"
+    },
+    "training": {
+      "$ref": "#/$defs/SftTraining"
+    },
+    "eval_fraction": {
+      "default": 0.1,
+      "maximum": 0.5,
+      "minimum": 0,
+      "title": "Eval Fraction",
+      "type": "number"
+    },
+    "max_parameters": {
+      "default": 3000000000,
+      "minimum": 1,
+      "title": "Max Parameters",
+      "type": "integer"
+    },
+    "privacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PrivacyShare"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "save": {
+      "$ref": "#/$defs/OutputTarget"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "base_model",
+    "data",
+    "format",
+    "lora",
+    "save"
+  ],
+  "title": "hf/sft@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "hf/sft",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "llm"
+    ],
+    "experimental": false
+  }
+}

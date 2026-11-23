@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "StepRef": {
+      "additionalProperties": false,
+      "description": "Reference to the artifact produced by an earlier step.",
+      "properties": {
+        "step": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "StepRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "predictions": {
+      "$ref": "#/$defs/StepRef"
+    },
+    "prefix": {
+      "default": "",
+      "description": "metric name prefix",
+      "pattern": "^([a-z][a-z0-9_]{0,31})?$",
+      "title": "Prefix",
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "enum": [
+          "dice_score",
+          "jaccard_index",
+          "hausdorff_distance"
+        ],
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "threshold": {
+      "default": 0.5,
+      "exclusiveMaximum": 1,
+      "exclusiveMinimum": 0,
+      "title": "Threshold",
+      "type": "number"
+    }
+  },
+  "required": [
+    "predictions",
+    "metrics"
+  ],
+  "title": "eval/segmentation@1 with",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-depa-plugin": {
+    "name": "eval/segmentation",
+    "version": "1.0.0",
+    "tier": 1,
+    "families": [
+      "classic",
+      "llm",
+      "torch"
+    ],
+    "experimental": false
+  }
+}

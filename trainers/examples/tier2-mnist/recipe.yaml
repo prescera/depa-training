@@ -1,0 +1,40 @@
+# Tier 2 example: train a TDC-supplied graph-only CNN (depa-graph/v1) on the MNIST scenario data,
+# with harness-owned functional DP-SGD. Inputs: mnist (scenarios/mnist/prepare) and graph (export_model.py).
+schema: depa-training/recipe/v1
+name: mnist-tier2-graph
+tier: 2
+family: torch
+inputs:
+  - {alias: mnist, dataset_id: mnist/handwritten-digits}
+  - {alias: graph, dataset_id: tdc/mnist-cnn-graph}
+steps:
+  - id: train
+    uses: torch/graph-train@1
+    with:
+      data:
+        kind: tensors
+        input: mnist
+        file: mnist-dataset.h5
+        format: hdf5
+        splits: {train: 0.8, val: 0.1, test: 0.1}
+      task: multiclass
+      graph: {input: graph}
+      loss: {class: nn.CrossEntropyLoss}
+      output_activation: softmax
+      training:
+        epochs: 1
+        batch_size: 512
+        optimizer: {name: SGD, params: {lr: 2.0, momentum: 0.5}}
+        max_grad_norm: 1.0
+      save: {output: model, format: safetensors}
+      seed: 21
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy, f1_score]
+      average: macro
+privacy: {mode: dp, epsilon: 3.0, delta: 1.0e-6}
+outputs:
+  - {name: model, format: safetensors}
+metrics: [accuracy, f1_score, test_loss]
