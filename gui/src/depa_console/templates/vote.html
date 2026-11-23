@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, short with context %}
+{% block title %}Confirm ballot{% endblock %}
+{% block content %}
+<h1>{{ "Approve" if ballot == "approve" else "Reject" }} proposal?</h1>
+<p>{{ proposal.service|upper }} proposal {{ short(proposal.id, 24) }} {{ badge(proposal.state) }}, proposed by <code>{{ proposal.proposer or "?" }}</code>.</p>
+<p>If your ballot completes the threshold, every action below is applied atomically.</p>
+{% for name, rows in proposal.actions %}
+<article class="card">
+  <h2><code>{{ name }}</code></h2>
+  <dl class="kv compact">{% for k, v in rows %}<dt>{{ k }}</dt><dd>{% if "\n" in v %}<pre>{{ v }}</pre>{% else %}{{ v }}{% endif %}</dd>{% endfor %}</dl>
+</article>
+{% endfor %}
+{% if proposal.state == "open" %}
+<form method="post" action="/governance/{{ proposal.service }}/proposals/{{ proposal.id }}/vote" class="actions">
+  {{ csrf_field() }}
+  <input type="hidden" name="ballot" value="{{ ballot }}">
+  <button type="submit" class="{{ '' if ballot == 'approve' else 'danger' }}">Cast “{{ ballot }}” as {{ me.party_id }}</button>
+  <a class="button secondary" href="/governance">Back</a>
+</form>
+{% else %}
+<p class="notice notice-error">This proposal is closed.</p>
+{% endif %}
+{% endblock %}

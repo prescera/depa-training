@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge with context %}
+{% block title %}{{ task.title }}{% endblock %}
+{% block head %}{% if not task.finished %}<noscript><meta http-equiv="refresh" content="3"></noscript>{% endif %}{% endblock %}
+{% block content %}
+<h1>{{ task.title }}</h1>
+<p><span id="task-state">{{ badge(task.state) }}</span> as <code>{{ task.party }}</code> · started {{ task.created_at|ts }}{% if task.finished_at %} · finished {{ task.finished_at|ts }}{% endif %}</p>
+{% if task.error %}<p class="notice notice-error" role="alert">{{ task.error }}</p>{% endif %}
+{% if not task.finished and task.cancellable %}
+<form method="post" action="/tasks/{{ task.id }}/cancel" data-confirm="Cancel this task? Completed steps are kept; a re-run resumes.">
+  {{ csrf_field() }}
+  <button type="submit" class="danger"{% if task.cancel_requested %} disabled{% endif %}>{% if task.cancel_requested %}Cancelling…{% else %}Cancel{% endif %}</button>
+</form>
+{% endif %}
+<h2>Progress</h2>
+<ol class="log" id="task-log" aria-live="polite"
+  {% if not task.finished %} data-stream="/tasks/{{ task.id }}/events?after={{ next_index - 1 }}"{% endif %}>
+  {% for i, line in lines %}<li>{{ line }}</li>{% endfor %}
+</ol>
+{% if result %}
+<h2>Result</h2>
+<pre class="result">{{ result }}</pre>
+{% endif %}
+<p><a href="/tasks">All activity</a></p>
+{% endblock %}

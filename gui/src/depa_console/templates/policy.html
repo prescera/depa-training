@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, field_error, described with context %}
+{% block title %}Policy · {{ dataset_id }}{% endblock %}
+{% block content %}
+<h1>Release policy for {{ dataset_id }}</h1>
+<p class="muted">The KMS checks this policy at every key release, in the same transaction as the attestation and contract checks. {% if not current %}No policy is set yet, so the defaults below are deliberately restrictive.{% else %}The form starts from the policy in force; submitting creates a new version.{% endif %}</p>
+{% if errors %}<p class="notice notice-error" role="alert">Please correct the highlighted fields.{% if errors._form %} {{ errors._form }}{% endif %}</p>{% endif %}
+<form method="post" action="/datasets/{{ dataset_id }}/policy" class="stack" novalidate data-confirm="Sign and publish this policy version for {{ dataset_id }}?">
+  {{ csrf_field() }}
+
+  <fieldset{{ described(errors, "platforms") }}>
+    <legend>Clean-room platforms</legend>
+    <label class="check"><input type="checkbox" name="platforms" value="aci-snp"{% if "aci-snp" in values.platforms %} checked{% endif %}> Azure confidential containers (SEV-SNP)</label>
+    <label class="check"><input type="checkbox" name="platforms" value="gcp-cs-tdx"{% if "gcp-cs-tdx" in values.platforms %} checked{% endif %}> Google Confidential Space (TDX)</label>
+    <label class="check"><input type="checkbox" name="platforms" value="virtual"{% if "virtual" in values.platforms %} checked{% endif %}> Virtual (development only, no hardware protection)</label>
+    <label class="check"><input type="checkbox" name="confirm_virtual"{% if values.confirm_virtual %} checked{% endif %}> If virtual is allowed: this dataset is development data only</label>
+    {{ field_error(errors, "platforms") }}
+  </fieldset>
+
+  <fieldset{{ described(errors, "tiers") }}>
+    <legend>Computation tiers</legend>
+    <label class="check"><input type="checkbox" name="tiers" value="1"{% if "1" in values.tiers %} checked{% endif %}> 1: declarative recipes</label>
+    <label class="check"><input type="checkbox" name="tiers" value="2"{% if "2" in values.tiers %} checked{% endif %}> 2: exported compute graphs</label>
+    <label class="check"><input type="checkbox" name="tiers" value="3"{% if "3" in values.tiers %} checked{% endif %}> 3: approved custom images (needs measurements below)</label>
+    {{ field_error(errors, "tiers") }}
+  </fieldset>
+
+  <label for="tdcs">Consumers (TDC party ids, comma-separated)</label>
+  <input id="tdcs" name="tdcs" value="{{ values.tdcs }}"{{ described(errors, "tdcs") }}>
+  <label class="check"><input type="checkbox" name="confirm_any_tdc"{% if values.confirm_any_tdc %} checked{% endif %}> If <code>*</code> is listed: any consumer may be named in a contract</label>
+  {{ field_error(errors, "tdcs") }}
+
+  <label for="purposes">Purposes (e.g. TRAINING)</label>
+  <input id="purposes" name="purposes" value="{{ values.purposes }}"{{ described(errors, "purposes") }}>
+  {{ field_error(errors, "purposes") }}
+
+  <fieldset>
+    <legend>Differential privacy</legend>
+    <label class="check"><input type="checkbox" name="require_dp"{% if values.require_dp %} checked{% endif %}> Require differential privacy</label>
+    <div class="row">
+      <label for="max_epsilon">Max ε</label>
+      <input id="max_epsilon" name="max_epsilon" value="{{ values.max_epsilon }}" inputmode="decimal" class="short-input"{{ described(errors, "max_epsilon") }}>
+      <label for="max_delta">Max δ</label>
+      <input id="max_delta" name="max_delta" value="{{ values.max_delta }}" inputmode="decimal" class="short-input"{{ described(errors, "max_delta") }}>
+    </div>
+    {{ field_error(errors, "max_epsilon") }}{{ field_error(errors, "max_delta") }}
+  </fieldset>
+
+  <fieldset{{ described(errors, "output_modes") }}>
+    <legend>Output modes</legend>
+    <label class="check"><input type="checkbox" name="output_modes" value="tee-only"{% if "tee-only" in values.output_modes %} checked{% endif %}> tee-only: the model never leaves a TEE</label>
+    <label class="check"><input type="checkbox" name="output_modes" value="tdc"{% if "tdc" in values.output_modes %} checked{% endif %}> tdc: the model is encrypted to the consumer</label>
+    {{ field_error(errors, "output_modes") }}
+  </fieldset>
+
+  <label for="audiences">Storage token audiences (comma-separated)</label>
+  <input id="audiences" name="audiences" value="{{ values.audiences }}"{{ described(errors, "audiences") }}>
+  {{ field_error(errors, "audiences") }}
+
+  <label for="custom_measurements">Approved custom measurements (tier 3 only)</label>
+  <input id="custom_measurements" name="custom_measurements" value="{{ values.custom_measurements }}"{{ described(errors, "custom_measurements") }}>
+  {{ field_error(errors, "custom_measurements") }}
+
+  <div class="row">
+    <label for="max_runs">Max runs per contract</label>
+    <input id="max_runs" name="max_runs" value="{{ values.max_runs }}" inputmode="numeric" class="short-input"{{ described(errors, "max_runs") }}>
+    <label for="not_after">Expires on</label>
+    <input id="not_after" name="not_after" type="date" value="{{ values.not_after }}"{{ described(errors, "not_after") }}>
+  </div>
+  {{ field_error(errors, "max_runs") }}{{ field_error(errors, "not_after") }}
+
+  <div class="actions">
+    <button type="submit">Sign and set policy</button>
+    <a class="button secondary" href="/datasets/{{ dataset_id }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

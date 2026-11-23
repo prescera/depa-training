@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, short, problem, propose_common with context %}
+{% block title %}Governance{% endblock %}
+
+{% macro proposal_card(p, voting) %}
+<article class="card">
+  <header class="card-head">
+    <h3>{{ p.service|upper }} proposal {{ short(p.id, 16) }}</h3>
+    {{ badge(p.state) }}
+  </header>
+  <p class="muted">Proposed by <code>{{ p.proposer or "?" }}</code>{% if p.tally %} · approvals {{ p.tally.approvals }}/{{ p.tally.required }} required of {{ p.tally.members }} members{% endif %}</p>
+  {% for name, rows in p.actions %}
+  <h4><code>{{ name }}</code></h4>
+  <dl class="kv compact">{% for k, v in rows %}<dt>{{ k }}</dt><dd>{% if "\n" in v %}<pre>{{ v }}</pre>{% else %}{{ v }}{% endif %}</dd>{% endfor %}</dl>
+  {% endfor %}
+  {% if p.ballots %}<p class="muted">Ballots: {% for voter, vote in p.ballots %}<code>{{ voter }}</code> {{ vote }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% if voting %}
+  <p class="actions">
+    {% if p.my_ballot %}<span class="muted">Your ballot: {{ p.my_ballot }} (you may change it while open).</span>{% endif %}
+    <a class="button" href="/governance/{{ p.service }}/proposals/{{ p.id }}/vote?ballot=approve">Approve…</a>
+    <a class="button secondary" href="/governance/{{ p.service }}/proposals/{{ p.id }}/vote?ballot=reject">Reject…</a>
+  </p>
+  {% endif %}
+</article>
+{% endmacro %}
+
+{% block content %}
+<h1>Governance</h1>
+<p class="muted">Both trust services are governed by n-of-m member ballots. Governance can tighten but never loosen a data owner's control.</p>
+
+<section aria-labelledby="h-open">
+  <h2 id="h-open">Open proposals</h2>
+  {% for p in open_proposals %}{{ proposal_card(p, true) }}{% else %}<p>No open proposals.</p>{% endfor %}
+</section>
+
+<section aria-labelledby="h-propose">
+  <h2 id="h-propose">Propose</h2>
+  <p class="muted">Each proposal is submitted identically to the KMS and the Contract Service.</p>
+
+  <details class="card">
+    <summary>Register a party</summary>
+    <form method="post" action="/governance/propose/party" class="stack">
+      {{ csrf_field() }}
+      {% if registrable %}
+      <label for="held_party">From a key directory held here</label>
+      <select id="held_party" name="held_party">
+        <option value="">(paste a record instead)</option>
+        {% for i in registrable %}<option value="{{ i.party_id }}">{{ i.party_id }} ({{ roles_label(i.roles) }})</option>{% endfor %}
+      </select>
+      {% endif %}
+      <label for="record">Public party record (<code>party.json</code> from <code>depa party keygen</code>)</label>
+      <textarea id="record" name="record" rows="6" spellcheck="false"></textarea>
+      <p class="hint">Records with the <code>dc-member</code> role are proposed as <code>set_member</code> (unanimous by default).</p>
+      {{ propose_common("party") }}
+      <button type="submit">Propose registration</button>
+    </form>
+  </details>
+
+  <details class="card">
+    <summary>Approve a clean-room release</summary>
+    <form method="post" action="/governance/propose/release" class="stack">
+      {{ csrf_field() }}
+      {{ problem(manifests_error) }}
+      {% if manifests %}
+      <label for="manifest">Release manifest from <code>releases_dir</code></label>
+      <select id="manifest" name="manifest">
+        <option value="">(paste a record instead)</option>
+        {% for m in manifests %}<option value="{{ m.release_id }}">{{ m.release_id }} · {{ m.platform }} · {{ m.families|join(", ") }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      <label for="release-record">Release record or manifest (JSON)</label>
+      <textarea id="release-record" name="record" rows="6" spellcheck="false"></textarea>
+      {{ propose_common("release") }}
+      <button type="submit">Propose approval</button>
+    </form>
+  </details>
+
+  <details class="card">
+    <summary>Revoke a clean-room release</summary>
+    <form method="post" action="/governance/propose/revoke-release" class="stack" data-confirm="Propose revoking this release? A revoked release id can never be approved again.">
+      {{ csrf_field() }}
+      <label for="release_id">Approved release</label>
+      <select id="release_id" name="release_id" required>
+        {% for r in approved_releases %}<option value="{{ r }}">{{ r }}</option>{% else %}<option value="">(none approved)</option>{% endfor %}
+      </select>
+      <label class="check"><input type="checkbox" name="confirm" required> I understand a revoked release can never be re-approved and running contracts that list it can no longer run.</label>
+      {{ propose_common("revoke") }}
+      <button type="submit" class="danger">Propose revocation</button>
+    </form>
+  </details>
+
+  <details class="card">
+    <summary>Settings: virtual attestation</summary>
+    <form method="post" action="/governance/propose/settings" class="stack">
+      {{ csrf_field() }}
+      <fieldset>
+        <legend>Allow the development-only <code>virtual</code> platform</legend>
+        <label class="check"><input type="radio" name="allow_virtual_attestation" value="false" checked> No (production)</label>
+        <label class="check"><input type="radio" name="allow_virtual_attestation" value="true"> Yes (development only)</label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="confirm"> If enabling: I confirm this collaborative holds no production data.</label>
+      {{ propose_common("settings") }}
+      <button type="submit">Propose setting</button>
+    </form>
+  </details>
+</section>
+
+<section aria-labelledby="h-members">
+  <h2 id="h-members">Members and constitution</h2>
+  <div class="grid2">
+  {% for s in services %}
+    <article class="card">
+      <h3>{{ "KMS" if s.name == "kms" else "Contract Service" }}</h3>
+      {{ problem(s.error) }}
+      {% if not s.error %}
+      {{ problem(s.members_error) }}
+      <ul class="plain">{% for pid, name in s.members %}<li><code>{{ pid }}</code> {{ name }}</li>{% endfor %}</ul>
+      <h4>Constitution</h4>
+      {% if s.constitution %}<pre>{{ s.constitution }}</pre>{% else %}<p class="muted">{{ s.constitution_error or "not available" }}</p>{% endif %}
+      {{ problem(s.proposals_error) }}
+      {% endif %}
+    </article>
+  {% endfor %}
+  </div>
+</section>
+
+<section aria-labelledby="h-closed">
+  <h2 id="h-closed">Closed proposals</h2>
+  {% for p in closed_proposals %}
+  <details class="card"><summary>{{ badge(p.state) }} {{ p.service|upper }} · {{ p.actions|map("first")|join(", ") }} · {{ short(p.id, 16) }}</summary>{{ proposal_card(p, false) }}</details>
+  {% else %}<p>None.</p>{% endfor %}
+</section>
+{% endblock %}

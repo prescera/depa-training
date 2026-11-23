@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, short, problem with context %}
+{% block title %}Run {{ run.run_id }}{% endblock %}
+{% block content %}
+<h1>Run {{ short(run.run_id, 36) }}</h1>
+<p>{{ badge(run.state) }} of <a href="/contracts/{{ contract.contract_id }}">{{ contract.title or contract.contract_id }}</a> · platform {{ run.platform or "?" }} · measurement {{ short(run.measurement_id or "?", 24) }}</p>
+
+<section aria-labelledby="h-events">
+  <h2 id="h-events">Timeline</h2>
+  {% if events %}
+  <ol class="timeline">
+    {% for e in events %}
+    <li><span class="when">{{ e.at }}</span> {{ badge(e.type) }} <span class="muted">#{{ e.seq }}</span>
+      {% if e.data and e.type != "completed" %}<pre>{{ e.data|tojson(indent=2) }}</pre>{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% else %}<p class="muted">No events yet.</p>{% endif %}
+</section>
+
+<section aria-labelledby="h-receipt">
+  <h2 id="h-receipt">Execution receipt</h2>
+  {% if run.state != "completed" %}
+  <p class="muted">Available once the run completes.</p>
+  {% else %}
+  {{ problem(receipt_error) }}
+  {% if receipt %}
+  <p>{% if not problems %}<span class="badge badge-ok">verified</span> Signed by the Contract Service; every dataset's KMS key-release receipt belongs to this run.{% else %}<span class="badge badge-bad">invalid</span>{% endif %}</p>
+  {% if problems %}<ul class="findings">{% for p in problems %}<li class="bad">{{ p }}</li>{% endfor %}</ul>{% endif %}
+  <dl class="kv">
+    <dt>Inputs</dt><dd><ul class="plain">{% for i in claims.inputs %}<li><code>{{ i.dataset_id }}</code>@{{ i.version }} {{ short(i.manifest_digest, 19) }}</li>{% endfor %}</ul></dd>
+    <dt>Measurement</dt><dd><code>{{ claims.measurement_id }}</code> on {{ claims.platform }}</dd>
+    <dt>Recipe</dt><dd>{{ short(claims.recipe_digest or "", 19) }}</dd>
+    <dt>Privacy spent</dt><dd>{{ privacy }}</dd>
+    <dt>Metrics</dt><dd>{% for k, v in (claims.metrics or {}).items() %}{{ k }} = {{ v }}{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</dd>
+    <dt>Outputs</dt><dd><ul class="plain">{% for o in claims.outputs %}<li><code>{{ o.name }}</code> ({{ o.format }}) {{ short(o.manifest_digest, 19) }} to {% for r in o.recipients or [] %}<code>{{ r }}</code> {% endfor %}</li>{% endfor %}</ul></dd>
+    <dt>Finished</dt><dd>{{ claims.finished_at }}</dd>
+  </dl>
+  {% endif %}
+
+  <h3>Ledger inclusion</h3>
+  <p class="muted">Proves the receipt is recorded in the Contract Service's ledger. The transaction id is the <code>txid</code> of the clean room's <code>completed</code> event (in its status log).</p>
+  {% if ledger %}
+  <p>{% if ledger.ok %}<span class="badge badge-ok">verified</span>{% else %}<span class="badge badge-bad">failed</span>{% endif %} {{ ledger.lines|join("; ") }} <span class="muted">({{ ledger.at|ts }})</span></p>
+  {% endif %}
+  <form method="post" action="/runs/{{ run.run_id }}/ledger" class="row">
+    {{ csrf_field() }}
+    <label for="txid">Transaction id</label>
+    <input id="txid" name="txid" placeholder="2.42" pattern="[0-9]+\.[0-9]+" required class="short-input">
+    <button type="submit" class="secondary">Verify ledger receipt</button>
+  </form>
+
+  {% if can_fetch %}
+  <h3>Fetch and decrypt the model</h3>
+  <p class="muted">Downloads the output with your storage credentials, checks its manifest against the verified receipt and the run's signing key, then decrypts it with your key on this machine.</p>
+  <form method="post" action="/runs/{{ run.run_id }}/fetch" class="stack">
+    {{ csrf_field() }}
+    <label for="output">Output</label>
+    <select id="output" name="output">{% for o in outputs %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select>
+    <label for="destination">Destination directory (absolute path; new or empty)</label>
+    <input id="destination" name="destination" required placeholder="/home/you/models/{{ run.run_id[:8] }}">
+    <button type="submit">Fetch and decrypt</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

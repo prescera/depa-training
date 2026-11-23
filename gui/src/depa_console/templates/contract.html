@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, short, problem with context %}
+{% block title %}{{ s.title }}{% endblock %}
+{% block content %}
+<h1>{{ s.title }}</h1>
+<p>{{ badge(s.state) }} Contract {{ short(s.contract_id, 36) }} · digest {{ short(s.digest, 23) }}{% if s.my_role %} · you are the {{ s.my_role }}{% endif %}</p>
+{% if s.description %}<p>{{ s.description }}</p>{% endif %}
+{% if s.revocation %}<p class="notice notice-error">Revoked: {{ s.revocation|tojson }}</p>{% endif %}
+
+<section aria-labelledby="h-plain">
+  <h2 id="h-plain">In plain language</h2>
+  <ul class="plain-language">
+    <li><strong>Who.</strong> <code>{{ s.tdc }}</code> (consumer) trains a model on data from {% for p in s.tdps %}<code>{{ p }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.</li>
+    <li><strong>Purpose.</strong> {{ s.purpose }}.</li>
+    <li><strong>Data.</strong> Exactly these dataset versions, pinned by manifest digest:
+      <ul>{% for d in s.datasets %}<li><code>{{ d.dataset_id }}</code> version <code>{{ d.version }}</code> {{ short(d.manifest_digest, 19) }}{% if d.mine %} <span class="badge badge-neutral">yours</span>{% endif %}</li>{% endfor %}</ul>
+    </li>
+    <li><strong>Where.</strong> {{ s.tier }}, in an attested clean room on {% for id, label in s.platforms %}{{ label }}{% if not loop.last %} or {% endif %}{% endfor %}, running {% if s.custom_ccr %}the custom image <code>{{ s.custom_ccr.image }}</code>{% else %}a governance-approved release ({% for r in s.releases %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}.</li>
+    <li><strong>Privacy.</strong> {{ s.privacy }}.</li>
+    <li><strong>Outputs.</strong> The model is {{ s.output_mode }}{% if s.recipients %} ({% for r in s.recipients %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}; formats {{ s.formats|join(", ") }}; at most {{ s.max_bytes }}; written to <code>{{ s.location }}</code>. Only these metrics leave the clean room: {{ s.metrics|join(", ") or "none" }}.</li>
+    <li><strong>When.</strong> From {{ s.not_before }} until {{ s.not_after }}; at most {{ s.max_runs }} runs of up to {{ s.max_minutes }} minutes each. Runs used: {{ s.runs_used }} of {{ s.max_runs }}.</li>
+    {% if s.terms %}<li><strong>Terms.</strong> {% if s.terms.uri %}<code>{{ s.terms.uri }}</code>{% endif %}{% if s.terms.governing_law %} · governing law {{ s.terms.governing_law }}{% endif %}</li>{% endif %}
+  </ul>
+</section>
+
+<section aria-labelledby="h-recipe">
+  <h2 id="h-recipe">Recipe</h2>
+  {% for r in s.recipes %}
+  <p><strong>{{ r.name }}</strong> (family {{ r.family }}) · {{ short(r.digest, 19) }}</p>
+  <ol class="steps">
+    {% for step in r.steps %}
+    <li><strong>{{ step.what }}</strong> <code>{{ step.uses }}</code> <span class="muted">({{ step.id }})</span>
+      {% if step.query %}<pre>{{ step.query }}</pre>{% endif %}
+      <details><summary>Configuration</summary><pre>{{ step.config }}</pre></details>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endfor %}
+</section>
+
+<section aria-labelledby="h-sign">
+  <h2 id="h-sign">Signatures</h2>
+  <ul class="plain">{% for p in s.signers %}<li>{% if p.signed %}<span class="badge badge-ok">signed</span>{% else %}<span class="badge badge-warn">pending</span>{% endif %} <code>{{ p.party }}</code>{% if p.me %} (you){% endif %}{% if p.at %} <span class="muted">{{ p.at }}</span>{% endif %}</li>{% endfor %}</ul>
+</section>
+
+<section aria-labelledby="h-verify">
+  <h2 id="h-verify">Verification as {{ me.party_id }}</h2>
+  {{ problem(verify_error) }}
+  {% if report %}
+  <p>{% if report.ok %}<span class="badge badge-ok">verified</span> Nothing blocks your signature.{% else %}<span class="badge badge-bad">failed</span> Signing is refused until these errors are resolved.{% endif %}</p>
+  <ul class="findings">
+    {% for m in report.errors %}<li class="bad">ERROR {{ m }}</li>{% endfor %}
+    {% for m in report.warnings %}<li class="warn">WARN {{ m }}</li>{% endfor %}
+    {% for m in report.info %}<li class="ok">info {{ m }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if can_sign %}
+  <form method="post" action="/contracts/{{ s.contract_id }}/sign" class="stack" data-confirm="Sign contract {{ s.contract_id }} as {{ me.party_id }}? Signing is binding.">
+    {{ csrf_field() }}
+    <label class="check"><input type="checkbox" name="confirm" required> I have read the contract above and agree to it on behalf of {{ me.name }}</label>
+    <button type="submit">Sign contract</button>
+  </form>
+  {% elif signed %}
+  <p class="muted">You have signed this contract.</p>
+  {% endif %}
+</section>
+
+{% if can_revoke %}
+<section class="killswitch" aria-labelledby="h-revoke">
+  <h2 id="h-revoke">Revoke</h2>
+  <p>Revocation is immediate and final: no further runs are authorised and no keys are released for this contract.</p>
+  <form method="post" action="/contracts/{{ s.contract_id }}/revoke" class="stack" data-confirm="Revoke contract {{ s.contract_id }}? This cannot be undone.">
+    {{ csrf_field() }}
+    <label for="reason">Reason (recorded)</label>
+    <input id="reason" name="reason" required maxlength="500">
+    <label class="check"><input type="checkbox" name="confirm" required> Revoke this contract permanently</label>
+    <button type="submit" class="danger">Revoke contract</button>
+  </form>
+</section>
+{% endif %}
+<p><a href="/runs?contract={{ s.contract_id }}">Runs of this contract</a></p>
+{% endblock %}

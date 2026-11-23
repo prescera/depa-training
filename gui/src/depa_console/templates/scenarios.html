@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field with context %}
+{% block title %}Scenarios{% endblock %}
+{% block content %}
+<h1>Scenarios</h1>
+<p class="muted">Runs the SDK's idempotent scenario driver: keys and policies, data preparation, encrypt / upload / publish, contract proposal, verification and signatures, the clean-room job, receipt verification and model retrieval. Steps for parties not selected, or whose keys are not held, are skipped and reported. Completed steps are kept when cancelled; a re-run resumes.</p>
+{% if not has_env %}
+<p class="notice">Development profile: the scenario's parties get keys in this profile and are registered with the collaborative, and data and outputs go to file storage under the profile. Only the local virtual clean room is available; start the console with <code>--env depa-env.yaml</code> for AKS or GCP.</p>
+{% endif %}
+{% if not scenarios %}
+<p class="notice notice-error">No scenarios (directories with a <code>contract.yaml</code>) under the scenarios root.</p>
+{% else %}
+<form method="post" action="/scenarios/deploy" class="stack">
+  {{ csrf_field() }}
+  <fieldset>
+    <legend>Scenario</legend>
+    {% for s in scenarios %}
+    <label class="check"><input type="radio" name="scenario" value="{{ s.name }}"{% if loop.first %} checked{% endif %}> <strong>{{ s.name }}</strong> <span class="muted">{{ s.datasets }} dataset template(s){% if s.prepare %}, data preparation script{% endif %} · {{ s.path }}</span></label>
+    {% endfor %}
+  </fieldset>
+  <fieldset>
+    <legend>Platform</legend>
+    {% for key, label in platforms.items() %}
+    <label class="check"><input type="radio" name="platform" value="{{ key }}"{% if key == "local" %} checked{% endif %}{% if not configured[key] %} disabled{% endif %}> {{ label }}{% if not configured[key] %} <span class="muted">({{ "needs an environment file" if not has_env else "no compute." ~ key ~ " in the environment file" }})</span>{% endif %}</label>
+    {% endfor %}
+  </fieldset>
+  <fieldset>
+    <legend>Act for</legend>
+    <label class="check"><input type="radio" name="act_for" value="me" checked> Only <code>{{ me.party_id }}</code></label>
+    <label class="check"><input type="radio" name="act_for" value="all"> Every party whose keys are held here (pilots and demos)</label>
+  </fieldset>
+  <fieldset>
+    <legend>Data preparation</legend>
+    <label class="check"><input type="radio" name="prepare" value="auto" checked> When source data is missing</label>
+    <label class="check"><input type="radio" name="prepare" value="always"> Always</label>
+    <label class="check"><input type="radio" name="prepare" value="never"> Never</label>
+  </fieldset>
+  <label class="check"><input type="checkbox" name="run" checked> Submit a clean-room job once the contract is active</label>
+  <button type="submit">Deploy</button>
+</form>
+{% endif %}
+{% endblock %}

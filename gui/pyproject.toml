@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "depa-console"
+version = "2.0.0"
+description = "DEPA Training v2: local web console for one party, built on the depa SDK"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "iSPIRT DEPA Training contributors" }]
+dependencies = [
+    "depa>=2.0.0,<3",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "jinja2>=3.1,<4",
+    "python-multipart>=0.0.18,<0.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.6,<0.18", "httpx>=0.27,<0.29", "PyYAML>=6.0.1,<7"]
+
+[project.scripts]
+depa-console = "depa_console.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+depa_console = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "C4", "SIM", "RUF", "PTH", "TRY", "PL"]
+ignore = ["PLR0913", "PLR2004", "TRY003", "PLR0911", "PLR0912", "PLR0915", "PLR0917"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S104", "S105", "S106", "S108", "PLR2004", "PLC0415", "TRY", "E402"]

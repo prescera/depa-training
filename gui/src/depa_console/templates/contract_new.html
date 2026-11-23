@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, short with context %}
+{% block title %}Propose a contract{% endblock %}
+{% block content %}
+<h1>Propose a contract</h1>
+<p class="muted">Start from a scenario's contract template (rendered as <code>depa contract init</code> does: a fresh id and validity, embedded recipes and manifest digests from the catalog), or paste / upload a contract document. It is validated before it can be proposed; every named party then verifies and signs it.</p>
+
+{% if templates %}
+<form method="post" action="/contracts/new" class="stack">
+  {{ csrf_field() }}
+  <input type="hidden" name="action" value="render">
+  <label for="template">Contract template</label>
+  <select id="template" name="template">{% for t in templates %}<option value="{{ t }}">{{ t.parent.name }} · {{ t }}</option>{% endfor %}</select>
+  <fieldset>
+    <legend>Clean-room platforms</legend>
+    <label class="check"><input type="radio" name="mode" value="template" checked> As in the template (production)</label>
+    <label class="check"><input type="radio" name="mode" value="dev"> Virtual clean room only (development)</label>
+  </fieldset>
+  <button type="submit" class="secondary">Render and validate</button>
+</form>
+{% endif %}
+
+<form method="post" action="/contracts/new" enctype="multipart/form-data" class="stack">
+  {{ csrf_field() }}
+  <label for="contract">Contract (JSON or YAML)</label>
+  <textarea id="contract" name="contract" rows="16" spellcheck="false">{{ raw }}</textarea>
+  <label for="file">…or upload a file</label>
+  <input id="file" name="file" type="file" accept=".json,.yaml,.yml,application/json">
+  {% if checked %}
+    {% if errors %}
+    <div class="notice notice-error" role="alert"><p>Not valid; cannot be proposed:</p>
+      <ul class="findings">{% for e in errors %}<li class="bad">{{ e }}</li>{% endfor %}</ul></div>
+    {% else %}
+    <p class="notice notice-ok" role="status">Valid. Contract {{ short(s.contract_id, 36) }}, digest {{ short(s.digest, 23) }}.</p>
+    <dl class="kv compact">
+      <dt>Title</dt><dd>{{ s.title }}</dd>
+      <dt>Data providers</dt><dd>{% for d in s.datasets %}<code>{{ d.dataset_id }}</code>@{{ d.version }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+      <dt>Platforms</dt><dd>{% for id, label in s.platforms %}{{ label }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
+      <dt>Privacy</dt><dd>{{ s.privacy }}</dd>
+      <dt>Outputs</dt><dd>{{ s.output_mode }} · <code>{{ s.location }}</code></dd>
+      <dt>Valid</dt><dd>{{ s.not_before }} to {{ s.not_after }}; {{ s.max_runs }} runs</dd>
+    </dl>
+    {% endif %}
+  {% endif %}
+  <div class="actions">
+    <button type="submit" name="action" value="validate" class="secondary">Validate</button>
+    {% if checked and not errors %}
+    <button type="submit" name="action" value="propose" data-confirm="Propose this contract as {{ me.party_id }}?">Propose as {{ me.party_id }}</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

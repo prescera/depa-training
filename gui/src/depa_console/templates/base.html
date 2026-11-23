@@ -1,0 +1,46 @@
+{% from "_macros.html" import csrf_field with context %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}DEPA console{% endblock %} · {{ me.party_id }}</title>
+<link rel="stylesheet" href="/static/console.css">
+<script src="/static/console.js" defer></script>
+{% block head %}{% endblock %}
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true">◆</span> DEPA Training</div>
+  <div class="identity">
+    <span class="party" title="Signing as {{ me.party_id }}">{{ me.name }} <code>{{ me.party_id }}</code></span>
+    <span class="roles">{{ roles_label(me.roles) }}</span>
+    {% if held|length > 1 %}
+    <form method="post" action="/session/party" class="inline">
+      {{ csrf_field() }}
+      <label for="party-switch" class="visually-hidden">Act as</label>
+      <select id="party-switch" name="party_id">
+        {% for p in held %}<option value="{{ p.party_id }}"{% if p.party_id == me.party_id %} selected{% endif %}>{{ p.party_id }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="small">Switch</button>
+    </form>
+    {% endif %}
+  </div>
+</header>
+<nav class="mainnav" aria-label="Main">
+  <ul>
+    {% for item in nav %}<li><a href="{{ item.href }}"{% if item.current %} aria-current="page"{% endif %}>{{ item.label }}</a></li>{% endfor %}
+  </ul>
+</nav>
+<main id="main" tabindex="-1">
+  {% if flashes %}
+  <div class="flashes" role="status" aria-live="polite">
+    {% for level, message in flashes %}<p class="notice notice-{{ level }}">{{ message }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">Keys stay on this machine. The console signs as <code>{{ me.party_id }}</code> only when you submit a form.</footer>
+</body>
+</html>

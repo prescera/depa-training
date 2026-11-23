@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, problem with context %}
+{% block title %}Datasets{% endblock %}
+{% block content %}
+<h1>My datasets</h1>
+<p class="muted">Each dataset has its own KMS key and your release policy. Plaintext never leaves this machine: it is encrypted here, uploaded to your storage, and only its descriptor is published.</p>
+
+{{ problem(catalog_error and "Catalog listing unavailable (" ~ catalog_error ~ "); showing datasets from local templates and contracts.") }}
+{% if rows %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Dataset</th><th scope="col">KMS state</th><th scope="col">Keys</th><th scope="col">Policy version</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="/datasets/{{ r.dataset_id }}">{{ r.dataset_id }}</a></td>
+      <td>{% if r.error %}<span class="badge badge-bad">error</span> {{ r.error }}{% else %}{{ badge(r.state) }}{% endif %}</td>
+      <td>{{ r["keys"] }}</td>
+      <td>{{ r.policy }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p>No datasets found yet.</p>
+{% endif %}
+
+<form method="get" action="/datasets" class="row">
+  <label for="lookup">Open a dataset by id</label>
+  <input id="lookup" name="dataset_id" placeholder="{{ me.party_id }}/name" pattern="[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,127}" required>
+  <button type="submit" class="secondary">Open</button>
+</form>
+
+<section aria-labelledby="h-publish">
+  <h2 id="h-publish">Encrypt, upload and publish a version</h2>
+  <p class="muted">Creates the dataset key if needed, encrypts the source directory (<code>dedf/1</code>), uploads it to the template's storage location (manifest last) and publishes the descriptor to the catalog. Versions are immutable.</p>
+  <form method="post" action="/datasets/publish" class="stack">
+    {{ csrf_field() }}
+    <label for="template">Dataset template</label>
+    {% if templates %}
+    <select id="template" name="template" required>
+      {% for t in templates %}<option value="{{ t.path }}">{{ t.dataset_id }}@{{ t.version }} · {{ t.path }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <input id="template" name="template" placeholder="/absolute/path/to/datasets/name.yaml" required>
+    {% endif %}
+    {% if unreadable %}<p class="hint">{{ unreadable }} template(s) under the scenarios root could not be read (unset variables or invalid YAML).</p>{% endif %}
+    <label for="source">Source directory (optional; default: the template's <code>source.path</code>)</label>
+    <input id="source" name="source" placeholder="/absolute/path/to/plaintext">
+    <label for="records">Record count to advertise (optional)</label>
+    <input id="records" name="records" inputmode="numeric" pattern="[0-9]*" class="short-input">
+    <button type="submit">Encrypt and publish</button>
+  </form>
+</section>
+{% endblock %}

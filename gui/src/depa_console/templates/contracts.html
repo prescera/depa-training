@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, short, problem with context %}
+{% block title %}Contracts{% endblock %}
+{% block content %}
+<h1>Contracts</h1>
+<p class="muted">Contracts in which <code>{{ me.party_id }}</code> is a party. A contract becomes active when every required party has verified and signed it.</p>
+{% if "tdc" in me.roles %}<p><a class="button" href="/contracts/new">Propose a contract</a></p>{% endif %}
+{{ problem(error) }}
+{% for state, items in groups %}
+<section aria-labelledby="h-{{ state }}">
+  <h2 id="h-{{ state }}">{{ badge(state) }} {{ items|length }}</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Contract</th><th scope="col">My role</th><th scope="col">Signatures</th><th scope="col">Runs used</th><th scope="col">Valid until</th></tr></thead>
+    <tbody>
+    {% for c in items %}
+      <tr>
+        <td><a href="/contracts/{{ c.id }}">{{ c.title }}</a><br>{{ short(c.id) }}</td>
+        <td>{{ c.role }}{% if not c.signed and state == "draft" %} <span class="badge badge-warn">awaiting my signature</span>{% endif %}</td>
+        <td>{{ c.signatures }}</td>
+        <td>{{ c.runs }}</td>
+        <td>{{ c.not_after }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% else %}
+{% if not error %}<p>No contracts yet. A consumer proposes them (for example with <code>depa contract propose</code> or a scenario deploy).</p>{% endif %}
+{% endfor %}
+{% endblock %}

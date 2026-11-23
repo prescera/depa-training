@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, problem with context %}
+{% block title %}{{ dataset_id }}{% endblock %}
+{% block content %}
+<h1>{{ dataset_id }}</h1>
+
+{% if record %}
+<section class="killswitch {{ 'is-suspended' if record.state == 'suspended' else '' }}" aria-labelledby="h-kill">
+  <h2 id="h-kill">Kill switch {{ badge(record.state) }}</h2>
+  {% if record.state == "suspended" %}
+  <p>Key releases and storage tokens for this dataset are stopped. Resuming lifts your suspension only; a Data Collaborative suspension stays in force.</p>
+  <form method="post" action="/datasets/{{ dataset_id }}/resume" class="stack" data-confirm="Resume key releases for {{ dataset_id }}?">
+    {{ csrf_field() }}
+    <label for="resume-reason">Reason (recorded)</label>
+    <input id="resume-reason" name="reason" required maxlength="500">
+    <label class="check"><input type="checkbox" name="confirm" required> Resume releases under the current policy</label>
+    <button type="submit">Resume</button>
+  </form>
+  {% else %}
+  <p>Suspending stops every key release and storage token for this dataset immediately, for all contracts, including runs that have not fetched keys yet.</p>
+  <form method="post" action="/datasets/{{ dataset_id }}/suspend" class="stack" data-confirm="Suspend {{ dataset_id }} now? All key releases stop immediately.">
+    {{ csrf_field() }}
+    <label for="suspend-reason">Reason (recorded)</label>
+    <input id="suspend-reason" name="reason" required maxlength="500">
+    <label class="check"><input type="checkbox" name="confirm" required> Stop all key releases for {{ dataset_id }}</label>
+    <button type="submit" class="danger">Suspend dataset</button>
+  </form>
+  {% endif %}
+</section>
+
+<section aria-labelledby="h-keys">
+  <h2 id="h-keys">Keys</h2>
+  <p class="muted">Private keys live only inside the KMS. New versions are encrypted to the current key.</p>
+  <ul class="plain">{% for k in record["keys"] %}<li><code>{{ k.kid }}</code> {{ badge(k.state) }}</li>{% endfor %}</ul>
+</section>
+
+<section aria-labelledby="h-policy">
+  <h2 id="h-policy">Release policy</h2>
+  <dl class="kv">{% for k, v in policy %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+  <p><a class="button" href="/datasets/{{ dataset_id }}/policy">{{ "Change policy" if record.policy else "Set policy" }}</a></p>
+  <h3>History</h3>
+  {% if history %}
+  <ol class="plain">{% for entry in history|reverse %}
+    <li><details><summary>Version {{ entry.version }} <span class="muted">set {{ entry.set_at }}</span></summary>
+      <dl class="kv compact">{% for k, v in entry.rows %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl></details></li>
+  {% endfor %}</ol>
+  {% else %}<p class="muted">{{ history_error or "No earlier versions." }}</p>{% endif %}
+</section>
+{% else %}
+{{ problem(record_error) }}
+<form method="post" action="/datasets/{{ dataset_id }}/create-key" class="stack">
+  {{ csrf_field() }}
+  <label for="description">Description (optional)</label>
+  <input id="description" name="description" maxlength="500">
+  <button type="submit">Create dataset key</button>
+</form>
+{% endif %}
+
+<section aria-labelledby="h-versions">
+  <h2 id="h-versions">Published versions</h2>
+  {% if versions %}<ul class="plain">{% for v in versions %}<li><code>{{ v }}</code></li>{% endfor %}</ul>
+  {% else %}<p class="muted">{{ catalog_error or "None yet." }}</p>{% endif %}
+  {% if templates %}
+  <form method="post" action="/datasets/publish" class="row">
+    {{ csrf_field() }}
+    <label for="tpl">Publish from template</label>
+    <select id="tpl" name="template">{% for t in templates %}<option value="{{ t.path }}">{{ t.version }} · {{ t.path }}</option>{% endfor %}</select>
+    <button type="submit">Encrypt and publish</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field, badge, short with context %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+
+<section aria-labelledby="h-party">
+  <h2 id="h-party">Acting as</h2>
+  <dl class="kv">
+    <dt>Party</dt><dd>{{ me.name }} <code>{{ me.party_id }}</code></dd>
+    <dt>Roles</dt><dd>{{ roles_label(me.roles) }}</dd>
+    <dt>Signing key</dt><dd><code>{{ me.party_id }}#{{ me.signing_kid }}</code></dd>
+    <dt>Encryption key</dt><dd><code>{{ me.hpke_kid }}</code></dd>
+    <dt>Key directory</dt><dd><code>{{ me.key_dir }}</code></dd>
+  </dl>
+  {% if held|length > 1 %}<p class="muted">Keys are also held for: {% for p in held if p.party_id != me.party_id %}<code>{{ p.party_id }}</code>{% if not loop.last %}, {% endif %}{% endfor %}. Use “Switch” at the top to act as another party.</p>{% endif %}
+</section>
+
+<section aria-labelledby="h-env">
+  <h2 id="h-env">Environment</h2>
+  <dl class="kv">
+    <dt>Configuration</dt><dd>{{ environment.source }}</dd>
+    {% for name, svc in environment.services.items() %}
+    <dt>{{ name }}</dt><dd><code>{{ svc.url or "not configured" }}</code>{% if svc.fingerprint %}<br><span class="muted">pinned certificate {{ short(svc.fingerprint, 23) }}</span>{% endif %}</dd>
+    {% endfor %}
+    <dt>Scenarios</dt><dd><code>{{ environment.scenarios_root }}</code></dd>
+    <dt>Work directory</dt><dd><code>{{ environment.work_dir }}</code></dd>
+  </dl>
+</section>
+
+<section aria-labelledby="h-services">
+  <h2 id="h-services">Trust services</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Service</th><th scope="col">Status</th><th scope="col">Version</th><th scope="col">App bundle digest</th><th scope="col">Signing keys</th></tr></thead>
+    <tbody>
+    {% for s in services %}
+      <tr>
+        <th scope="row">{{ s.name }}</th>
+        {% if s.error %}
+          <td colspan="4"><span class="badge badge-bad">unreachable</span> {{ s.error }}</td>
+        {% else %}
+          <td>{% if not s.bootstrapped %}<span class="badge badge-warn">not bootstrapped</span>{% else %}<span class="badge badge-ok">up</span>{% endif %}</td>
+          <td>{{ s.version }}</td>
+          <td>{{ short(s.bundle_digest, 23) }} {% if s.bundle_approved %}<span class="badge badge-ok">governance-approved</span>{% else %}<span class="badge badge-bad">not approved</span>{% endif %}</td>
+          <td>{% for k in s["keys"] %}<code>{{ k }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section aria-labelledby="h-audit">
+  <h2 id="h-audit">Deployment audit</h2>
+  <p class="muted">Checks that deployed app bundles are governance-approved, that each service's pin of its peer matches the live keys, and that the public OIDC gateway serves the KMS's keys.</p>
+  {% if audit %}
+    <p>{% if audit.ok %}<span class="badge badge-ok">passed</span>{% else %}<span class="badge badge-bad">findings</span>{% endif %} at {{ audit.at|ts }}</p>
+    <ul class="findings">{% for line in audit.lines %}<li class="{{ 'bad' if line.startswith('FAIL') else 'ok' }}">{{ line }}</li>{% endfor %}</ul>
+  {% else %}
+    <p>Not run yet in this session.</p>
+  {% endif %}
+  <form method="post" action="/audit">{{ csrf_field() }}<button type="submit">Run audit</button></form>
+</section>
+
+{% if tasks %}
+<section aria-labelledby="h-tasks">
+  <h2 id="h-tasks">Recent activity</h2>
+  <ul class="plain">{% for t in tasks %}<li>{{ badge(t.state) }} <a href="/tasks/{{ t.id }}">{{ t.title }}</a> <span class="muted">{{ t.created_at|ts }}</span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

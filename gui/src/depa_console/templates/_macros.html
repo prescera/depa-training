@@ -1,0 +1,33 @@
+{% macro csrf_field() %}<input type="hidden" name="csrf_token" value="{{ csrf }}">{% endmacro %}
+
+{% macro badge(state) -%}
+{%- set kind = {"active": "ok", "approved": "ok", "accepted": "ok", "completed": "ok", "succeeded": "ok",
+  "draft": "warn", "open": "warn", "authorized": "warn", "running": "warn", "queued": "warn", "signed": "warn",
+  "suspended": "bad", "revoked": "bad", "failed": "bad", "rejected": "bad", "expired": "bad", "exhausted": "bad",
+  "cancelled": "bad"}.get(state, "neutral") -%}
+<span class="badge badge-{{ kind }}">{{ state or "unknown" }}</span>
+{%- endmacro %}
+
+{% macro short(value, n=12) -%}
+<code title="{{ value }}">{{ value[:n] }}{% if value|length > n %}…{% endif %}</code>
+{%- endmacro %}
+
+{% macro field_error(errors, name) -%}
+{% if errors.get(name) %}<p class="field-error" id="err-{{ name }}">{{ errors[name] }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro described(errors, name) -%}
+{% if errors.get(name) %} aria-invalid="true" aria-describedby="err-{{ name }}"{% endif %}
+{%- endmacro %}
+
+{% macro problem(text) -%}
+{% if text %}<p class="notice notice-error" role="alert">{{ text }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro propose_common(prefix) -%}
+<div class="row">
+  <label for="{{ prefix }}-expires">Open for (days)</label>
+  <input id="{{ prefix }}-expires" type="number" name="expires_days" min="1" max="30" value="7" class="short-input" required>
+  <label class="check"><input type="checkbox" name="approve" checked> Also cast my approval</label>
+</div>
+{%- endmacro %}

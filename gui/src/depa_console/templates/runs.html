@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, short, problem with context %}
+{% block title %}Runs{% endblock %}
+{% block content %}
+<h1>Runs</h1>
+<p class="muted">Each run is one clean room executing one contract. Completed runs carry an Execution Receipt signed by the Contract Service and backed by KMS key-release receipts.{% if wanted %} <a href="/runs">Show all contracts</a>{% endif %}</p>
+{{ problem(error) }}
+{% for g in groups %}
+<section aria-labelledby="h-{{ g.contract.contract_id }}">
+  <h2 id="h-{{ g.contract.contract_id }}"><a href="/contracts/{{ g.contract.contract_id }}">{{ g.contract.title or g.contract.contract_id }}</a></h2>
+  {{ problem(g.error) }}
+  {% if g.rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Run</th><th scope="col">State</th><th scope="col">Platform</th><th scope="col">Events</th><th scope="col">Last event</th></tr></thead>
+    <tbody>
+    {% for r in g.rows %}
+      <tr><td><a href="/runs/{{ r.run_id }}">{{ short(r.run_id, 13) }}</a></td><td>{{ badge(r.state) }}</td><td>{{ r.platform }}</td><td>{{ r.events }}</td><td>{{ r.last }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% elif not g.error %}<p class="muted">No runs yet.</p>{% endif %}
+</section>
+{% else %}
+{% if not error %}<p>No contracts, so no runs.</p>{% endif %}
+{% endfor %}
+{% endblock %}
