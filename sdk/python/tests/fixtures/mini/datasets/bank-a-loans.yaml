@@ -1,0 +1,28 @@
+# Test fixture: dataset template for TDP bank-a.
+dataset_id: bank-a/loans
+version: "2026-11-01"
+name: Loans
+description: Synthetic loan applications (test fixture).
+format: dedf/1
+schema: {type: tabular, files: ["*.csv"], columns: [{name: id, type: int64, pii: pseudonymous}]}
+location:
+  connector: file
+  uri: ${MINI_STORAGE_URI}bank-a/loans/
+federation: {}
+kms:
+  url: ${DEPA_KMS_URL}
+  kid: bank-a/loans#1
+source:
+  path: data/alpha
+  include: ["*.csv"]
+policy:
+  version: 1
+  allowed_platforms: [virtual]
+  allowed_tiers: [1]
+  allowed_tdcs: ["${DEPA_TDC:-tdc}"]
+  allowed_purposes: [TRAINING]
+  privacy: {require_dp: true, max_epsilon: 3.0, max_delta: 1.0e-05}
+  allowed_output_modes: [tdc, tee-only]
+  allowed_audiences: [sts.amazonaws.com]
+  max_runs_per_contract: 10
+  not_after: "2030-01-01T00:00:00Z"

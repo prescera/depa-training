@@ -1,0 +1,33 @@
+# Test fixture contract template.
+schema: depa-training/contract/v2
+title: Mini scenario
+description: Test fixture.
+purpose: TRAINING
+parties:
+  tdc: ${DEPA_TDC:-tdc}
+  tdps: [bank-a, bureau]
+validity:
+  not_before: now
+  duration_days: 7
+datasets:
+  - {dataset_id: bank-a/loans, version: "2026-11-01"}
+  - {dataset_id: bureau/scores, version: "2026-11-01"}
+computation:
+  tier: 1
+  platforms: ${DEPA_PLATFORMS:-[virtual]}
+  ccr_releases: ${DEPA_CCR_RELEASES:-[depa-ccr-virtual-dev]}
+  recipes:
+    - path: recipe.yaml
+  max_runs: 3
+  max_duration_minutes: 30
+privacy: {mode: dp, epsilon: 2.5, delta: 1.0e-05}
+output:
+  mode: ${MINI_OUTPUT_MODE:-tdc}
+  recipients: ${MINI_RECIPIENTS:-["party:tdc#h1"]}
+  allowed_formats: [xgboost-json]
+  max_bytes: 1048576
+  metrics_allowlist: [accuracy, loss]
+  location:
+    connector: file
+    uri: ${MINI_STORAGE_URI}outputs/
+terms: {governing_law: IN}

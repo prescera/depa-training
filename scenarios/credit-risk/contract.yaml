@@ -1,0 +1,51 @@
+# Contract template (DEPA Training v2, spec section 8.1) for the `credit-risk` scenario.
+#
+# `depa contract init --template scenarios/credit-risk/contract.yaml` substitutes dollar-brace placeholders (NAME, or NAME:-default)
+# from the environment, assigns a fresh contract_id, resolves each dataset's
+# manifest_digest from the CS catalog, embeds recipe.yaml (with its digest) and writes the
+# canonical JSON contract. Defaults target production platforms; for the local dev stack set
+# DEPA_PLATFORMS="[virtual]" and DEPA_CCR_RELEASES to the approved virtual release.
+schema: depa-training/contract/v2
+title: Credit default risk (DP XGBoost)
+description: >-
+  Train a differentially private XGBoost credit default model on joined bank, bureau and fintech data.
+purpose: TRAINING
+parties:
+  tdc: ${DEPA_TDC:-tdc}
+  tdps: [bank-a, bank-b, bureau, fintech]
+validity:
+  not_before: ${DEPA_NOT_BEFORE:-now}       # "now" or an RFC 3339 timestamp
+  duration_days: ${DEPA_CONTRACT_DAYS:-30}  # alternatively not_after: <RFC 3339>
+datasets:
+  - {dataset_id: bank-a/credit-applications, version: "2026-11-01"}
+  - {dataset_id: bank-a/previous-applications, version: "2026-11-01"}
+  - {dataset_id: bank-a/payment-installments, version: "2026-11-01"}
+  - {dataset_id: bank-b/credit-card-balance, version: "2026-11-01"}
+  - {dataset_id: bureau/bureau-records, version: "2026-11-01"}
+  - {dataset_id: fintech/pos-cash-balance, version: "2026-11-01"}
+computation:
+  tier: 1
+  platforms: ${DEPA_PLATFORMS:-[aci-snp, gcp-cs-tdx]}
+  # Trainer family `classic`. Gradient-boosted trees exported as XGBoost JSON.
+  ccr_releases: ${DEPA_CCR_RELEASES:-[depa-ccr-classic-2.0.0-aci, depa-ccr-classic-2.0.0-gcp]}
+  recipes:
+    - path: recipe.yaml
+  max_runs: 3
+  max_duration_minutes: 120
+# Must satisfy every dataset's release policy (epsilon/delta at or below each max).
+privacy: {mode: dp, epsilon: 4.0, delta: 1.0e-05}
+output:
+  mode: tdc
+  recipients: ["party:${DEPA_TDC:-tdc}#h1"]
+  allowed_formats: [xgboost-json]
+  max_bytes: 67108864
+  # Scalar metrics only; anything else the trainer reports is dropped by the output gate.
+  metrics_allowlist: [accuracy, roc_auc]
+  location:
+    connector: ${DEPA_OUTPUT_CONNECTOR:-file}
+    uri: ${DEPA_OUTPUT_URI:-file:///tmp/depa-dev-storage/outputs/}
+    # Production example: azure: {tenant_id: "<tenant>", client_id: "<client>"} (subject output:<tdc>)
+    federation: {}
+terms:
+  uri: ${DEPA_TERMS_BASE_URL:-https://github.com/prescera/depa-training/blob/main}/scenarios/credit-risk/README.md
+  governing_law: IN

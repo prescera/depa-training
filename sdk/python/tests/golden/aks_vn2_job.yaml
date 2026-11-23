@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: depa-ccr-0b8f6c1e-00112233
+  namespace: depa
+  labels:
+    app.kubernetes.io/name: depa-ccr
+    app.kubernetes.io/managed-by: depa-cli
+    depa.ispirt.in/contract-id: 0b8f6c1e-2f4a-4d7e-9a51-3c2d1e0f9a8b
+    depa.ispirt.in/release-id: depa-ccr-torch-2.0.0-aci
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 7200
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: depa-ccr
+        depa.ispirt.in/contract-id: 0b8f6c1e-2f4a-4d7e-9a51-3c2d1e0f9a8b
+      annotations:
+        microsoft.containerinstance.virtualnode.ccepolicy: cGFja2FnZSBwb2xpY3kKYXBpX3ZlcnNpb24gOj0gIjAuMTAuMCIK
+        microsoft.containerinstance.virtualnode.injectkubeproxy: 'false'
+        microsoft.containerinstance.virtualnode.injectdns: 'false'
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+        - 168.63.129.16
+      nodeSelector:
+        type: virtual-kubelet
+      tolerations:
+      - key: virtual-kubelet.io/provider
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: ccr
+        image: ispirt.azurecr.io/depa-ccr-torch@sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+        command:
+        - depa-ccr
+        - run
+        workingDir: /depa
+        env:
+        - name: DEPA_CONTRACT_ID
+          value: 0b8f6c1e-2f4a-4d7e-9a51-3c2d1e0f9a8b
+        - name: DEPA_RECIPE_DIGEST
+          value: sha256:abababababababababababababababababababababababababababababababab
+        - name: DEPA_CS_URL
+          value: https://cs.example.org/app
+        - name: DEPA_KMS_URL
+          value: https://kms.example.org/app
+        - name: DEPA_PLATFORM
+          value: aci-snp
+        - name: DEPA_TRUST_BUNDLE
+          value: eyJ2IjoxfQ==
+        - name: DEPA_LOG_LEVEL
+          value: info
+        resources:
+          requests:
+            cpu: '4'
+            memory: 16Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+        securityContext:
+          privileged: false
+          allowPrivilegeEscalation: false

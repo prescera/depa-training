@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ispirt.github.io/depa-training/schemas/ccr-release.json",
+  "title": "CCR release record (protocol spec section 6)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "release_id",
+    "platform",
+    "families",
+    "tiers",
+    "measurements",
+    "provenance"
+  ],
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "platform": {
+      "enum": [
+        "aci-snp",
+        "gcp-cs-tdx",
+        "virtual"
+      ]
+    },
+    "families": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "classic",
+          "torch",
+          "llm",
+          "custom",
+          "inference"
+        ]
+      }
+    },
+    "tiers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          1,
+          2
+        ]
+      },
+      "minItems": 1
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host_data": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "uvm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "did",
+            "feed",
+            "min_svn"
+          ],
+          "properties": {
+            "did": {
+              "type": "string"
+            },
+            "feed": {
+              "type": "string"
+            },
+            "min_svn": {
+              "type": "string"
+            }
+          }
+        },
+        "image_digests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "support_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "require_debug_disabled": {
+          "type": "boolean"
+        },
+        "virtual_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "aci-snp"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "measurements": {
+            "required": [
+              "host_data",
+              "uvm"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "gcp-cs-tdx"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "measurements": {
+            "required": [
+              "image_digests",
+              "require_debug_disabled"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "virtual"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "measurements": {
+            "required": [
+              "virtual_ids"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

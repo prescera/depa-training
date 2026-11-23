@@ -1,0 +1,19 @@
+# Test fixture: dataset template for TDP bureau.
+dataset_id: bureau/scores
+version: "2026-11-01"
+name: Scores
+format: dedf/1
+location:
+  connector: file
+  uri: ${MINI_STORAGE_URI}bureau/scores/
+kms:
+  url: ${DEPA_KMS_URL}
+  kid: bureau/scores#1
+source:
+  path: data/beta
+policy:
+  version: 1
+  allowed_platforms: [virtual]
+  allowed_tdcs: ["*"]
+  allowed_purposes: [TRAINING]
+  allowed_output_modes: [tdc, tee-only]

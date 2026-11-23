@@ -1,0 +1,46 @@
+# Contract template (DEPA Training v2, spec section 8.1) for the `llm-sft` scenario.
+#
+# `depa contract init` substitutes dollar-brace placeholders (NAME, or NAME:-default), assigns a
+# fresh contract_id, resolves manifest digests from the CS catalog and embeds recipe.yaml. The
+# TDC party id is fixed to `tdc` because the recipe's base-model input is `tdc/smollm2-135m`; the
+# TDC owns that dataset and is therefore also a TDP (it needs roles tdc and tdp).
+schema: depa-training/contract/v2
+title: Note-to-JSON extraction (LoRA SFT of SmolLM2-135M)
+description: >-
+  LoRA fine-tune the consumer's SmolLM2-135M base model on pooled synthetic payment and order notes from
+  Bank A and Shop B. Output: the LoRA adapter only.
+purpose: TRAINING
+parties:
+  tdc: tdc
+  tdps: [tdc, bank-a, shop-b]
+validity:
+  not_before: ${DEPA_NOT_BEFORE:-now}       # "now" or an RFC 3339 timestamp
+  duration_days: ${DEPA_CONTRACT_DAYS:-30}  # alternatively not_after: <RFC 3339>
+datasets:
+  - {dataset_id: tdc/smollm2-135m, version: "2026-11-01"}
+  - {dataset_id: bank-a/transaction-notes, version: "2026-11-01"}
+  - {dataset_id: shop-b/order-notes, version: "2026-11-01"}
+computation:
+  tier: 1
+  platforms: ${DEPA_PLATFORMS:-[aci-snp, gcp-cs-tdx]}
+  # Trainer family `llm` (transformers + peft, CPU).
+  ccr_releases: ${DEPA_CCR_RELEASES:-[depa-ccr-llm-2.0.0-aci, depa-ccr-llm-2.0.0-gcp]}
+  recipes:
+    - path: recipe.yaml
+  max_runs: 3
+  max_duration_minutes: 240
+privacy: {mode: none}
+output:
+  mode: tdc
+  recipients: ["party:tdc#h1"]
+  allowed_formats: [safetensors]   # adapter_model.safetensors + adapter_config.json
+  max_bytes: 67108864
+  metrics_allowlist: [train_loss, eval_loss, perplexity]
+  location:
+    connector: ${DEPA_OUTPUT_CONNECTOR:-file}
+    uri: ${DEPA_OUTPUT_URI:-file:///tmp/depa-dev-storage/outputs/}
+    # Production example: azure: {broker_url: "https://<broker>/api", audience: "api://depa-broker-tdc"}
+    federation: {}
+terms:
+  uri: ${DEPA_TERMS_BASE_URL:-https://github.com/prescera/depa-training/blob/main}/scenarios/llm-sft/README.md
+  governing_law: IN

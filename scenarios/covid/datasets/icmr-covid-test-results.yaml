@@ -1,0 +1,60 @@
+# Dataset descriptor template (DEPA Training v2, spec section 7.2) for TDP `icmr`.
+#
+# Resolved by `depa` with environment substitution of dollar-brace placeholders (NAME, or NAME:-default) before YAML
+# parsing; the defaults target the local dev stack (`depa dev up`, file connector).
+#   depa dataset create-key   -> creates icmr/covid-test-results#1 in the KMS
+#   depa dataset policy set   -> publishes the `policy` section below (owner-signed)
+#   depa dataset encrypt      -> encrypts `source` into dedf/1 (manifest.json + manifest.jws + objects/)
+#   depa dataset upload       -> copies the encrypted tree to `location`
+#   depa dataset publish      -> fills manifest_digest, size_bytes, records and posts to the CS catalog
+# `source` and `policy` are SDK-local and are never published.
+dataset_id: icmr/covid-test-results
+version: "2026-11-01"
+name: ICMR COVID-19 test results
+description: >-
+  Synthetic, de-identified COVID-19 RT-PCR test results (standardised, anonymised) from ICMR.
+format: dedf/1
+schema:
+  type: tabular
+  files: ["*.csv"]
+  columns:
+    - {name: pk_mobno_hashed, type: string, pii: pseudonymous}
+    - {name: icmr_test_result, type: string, pii: none}
+    - {name: fk_genetic_strain, type: string, pii: none}
+    - {name: test_ct_value, type: float64, pii: none}
+    - {name: sample_genetic_sequenced, type: string, pii: none}
+location:
+  connector: ${ICMR_CONNECTOR:-file}
+  uri: ${ICMR_DATA_URI:-file:///tmp/depa-dev-storage/icmr/covid-test-results/2026-11-01/}
+  # region: ap-south-1        # required for s3
+# How a CCR obtains read access with the KMS-issued OIDC token (spec section 10); trust subject
+# `dataset:icmr/covid-test-results`. Not needed for the dev `file` connector. Production examples:
+#   aws:   {role_arn: "arn:aws:iam::<account>:role/depa-icmr-covid-test-results-reader"}
+#   gcp:   {audience: "//iam.googleapis.com/projects/<n>/locations/global/workloadIdentityPools/<pool>/providers/<provider>"}
+#   azure: {broker_url: "https://<tdp-broker>/api", audience: "api://depa-broker-<tdp>"}  # SAS broker, spec 10.1
+#          ({tenant_id, client_id} once the KMS can issue RS256 tokens)
+federation: {}
+kms:
+  url: ${DEPA_KMS_URL:-https://127.0.0.1:18000/app}
+  kid: icmr/covid-test-results#1
+
+# --- SDK-local sections (never published) ------------------------------------------------
+source:
+  # Preprocessed plaintext produced by this scenario's preprocessing step (relative to the
+  # scenario directory). Only the listed files are encrypted.
+  path: data/icmr/preprocessed
+  include: ["dp_icmr_standardised_anon.csv"]
+policy:
+  # Release Policy v1 (spec section 7.1). `virtual` is for the local dev stack only and MUST be
+  # removed (set ICMR_ALLOWED_PLATFORMS) before real data is published.
+  version: 1
+  allowed_platforms: ${ICMR_ALLOWED_PLATFORMS:-[aci-snp, gcp-cs-tdx, virtual]}
+  allowed_tiers: [1]
+  allowed_tdcs: ["${DEPA_TDC:-tdc}"]
+  allowed_purposes: [TRAINING]
+  privacy: {require_dp: true, max_epsilon: 1.5, max_delta: 0.01}
+  allowed_output_modes: [tdc]
+  allowed_audiences: ${ICMR_ALLOWED_AUDIENCES:-[sts.amazonaws.com]}
+  allowed_custom_measurements: []
+  max_runs_per_contract: 10
+  not_after: "2027-12-31T00:00:00Z"

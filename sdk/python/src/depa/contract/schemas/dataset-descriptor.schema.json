@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ispirt.github.io/depa-training/schemas/dataset-descriptor.json",
+  "title": "CS catalog dataset descriptor (protocol spec section 7.2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dataset_id",
+    "version",
+    "name",
+    "format",
+    "manifest_digest",
+    "location",
+    "kms"
+  ],
+  "properties": {
+    "dataset_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}/[a-z0-9][a-z0-9._-]{0,54}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "format": {
+      "const": "dedf/1"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "schema": {
+      "type": "object"
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connector",
+        "uri"
+      ],
+      "properties": {
+        "connector": {
+          "enum": [
+            "s3",
+            "azure-blob",
+            "gcs",
+            "https",
+            "file"
+          ]
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "region": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        }
+      }
+    },
+    "federation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aws": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role_arn"
+          ],
+          "properties": {
+            "role_arn": {
+              "type": "string"
+            }
+          }
+        },
+        "gcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "audience"
+          ],
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "service_account": {
+              "type": "string"
+            }
+          }
+        },
+        "azure": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tenant_id",
+                "client_id"
+              ],
+              "properties": {
+                "tenant_id": {
+                  "type": "string"
+                },
+                "client_id": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "broker_url",
+                "audience"
+              ],
+              "properties": {
+                "broker_url": {
+                  "type": "string",
+                  "pattern": "^https://"
+                },
+                "audience": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "kms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "kid"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "kid": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        }
+      }
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "records": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

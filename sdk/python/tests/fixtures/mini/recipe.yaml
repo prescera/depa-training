@@ -1,0 +1,50 @@
+# Test fixture recipe (depa-training/recipe/v1), valid for depa_train.api.validate_recipe.
+# The fake trainer (tests/fixtures/fake_trainer.py) takes its behaviour from the name suffix.
+schema: depa-training/recipe/v1
+name: mini-ok
+tier: 1
+family: classic
+inputs:
+  - {alias: loans, dataset_id: bank-a/loans}
+  - {alias: scores, dataset_id: bureau/scores}
+steps:
+  - id: join
+    uses: sql/duckdb@1
+    with:
+      tables:
+        - {name: loans, input: loans, files: "*.csv", format: csv}
+        - {name: scores, input: scores, files: "*.csv", format: csv}
+      query: |
+        SELECT l.id, l.amount, l."default" AS target, s.score
+        FROM loans l JOIN scores s ON l.id = s.id
+      privacy_unit: id
+  - id: split
+    uses: tabular/split@1
+    with:
+      source: {step: join}
+      target: target
+      task: classification
+      classes: [0, 1]
+      features: [amount, score]
+      missing: {strategy: constant, value: 0}
+      bounds: {amount: [0, 100000], score: [300, 900]}
+      splits: {train: 0.8, val: 0.1, test: 0.1}
+      stratify: true
+      seed: 1
+  - id: train
+    uses: xgboost/train@1
+    with:
+      data: {step: split}
+      objective: "binary:logistic"
+      num_boost_round: 5
+      params: {max_depth: 2, learning_rate: 0.3}
+      save: {output: model, format: xgboost-json}
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy]
+privacy: {mode: dp, epsilon: 2.0, delta: 1.0e-05}
+outputs:
+  - {name: model, format: xgboost-json}
+metrics: [accuracy]

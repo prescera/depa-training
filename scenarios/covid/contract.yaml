@@ -1,0 +1,48 @@
+# Contract template (DEPA Training v2, spec section 8.1) for the `covid` scenario.
+#
+# `depa contract init --template scenarios/covid/contract.yaml` substitutes dollar-brace placeholders (NAME, or NAME:-default)
+# from the environment, assigns a fresh contract_id, resolves each dataset's
+# manifest_digest from the CS catalog, embeds recipe.yaml (with its digest) and writes the
+# canonical JSON contract. Defaults target production platforms; for the local dev stack set
+# DEPA_PLATFORMS="[virtual]" and DEPA_CCR_RELEASES to the approved virtual release.
+schema: depa-training/contract/v2
+title: COVID-19 infection prediction (DP MLP)
+description: >-
+  Train a differentially private binary classifier predicting COVID-19 infection from joined ICMR, CoWIN and Index records.
+purpose: TRAINING
+parties:
+  tdc: ${DEPA_TDC:-tdc}
+  tdps: [icmr, cowin, index]
+validity:
+  not_before: ${DEPA_NOT_BEFORE:-now}       # "now" or an RFC 3339 timestamp
+  duration_days: ${DEPA_CONTRACT_DAYS:-30}  # alternatively not_after: <RFC 3339>
+datasets:
+  - {dataset_id: icmr/covid-test-results, version: "2026-11-01"}
+  - {dataset_id: cowin/vaccination-records, version: "2026-11-01"}
+  - {dataset_id: index/patient-records, version: "2026-11-01"}
+computation:
+  tier: 1
+  platforms: ${DEPA_PLATFORMS:-[aci-snp, gcp-cs-tdx]}
+  # Trainer family `torch`. Deep learning (MLP) exported as ONNX.
+  ccr_releases: ${DEPA_CCR_RELEASES:-[depa-ccr-torch-2.0.0-aci, depa-ccr-torch-2.0.0-gcp]}
+  recipes:
+    - path: recipe.yaml
+  max_runs: 3
+  max_duration_minutes: 120
+# Must satisfy every dataset's release policy (epsilon/delta at or below each max).
+privacy: {mode: dp, epsilon: 1.0, delta: 1.0e-05}  # DP-SGD needs delta < 1/n_train
+output:
+  mode: tdc
+  recipients: ["party:${DEPA_TDC:-tdc}#h1"]
+  allowed_formats: [onnx]
+  max_bytes: 67108864
+  # Scalar metrics only; anything else the trainer reports is dropped by the output gate.
+  metrics_allowlist: [accuracy, f1_score, roc_auc, test_loss]
+  location:
+    connector: ${DEPA_OUTPUT_CONNECTOR:-file}
+    uri: ${DEPA_OUTPUT_URI:-file:///tmp/depa-dev-storage/outputs/}
+    # Production example: azure: {tenant_id: "<tenant>", client_id: "<client>"} (subject output:<tdc>)
+    federation: {}
+terms:
+  uri: ${DEPA_TERMS_BASE_URL:-https://github.com/prescera/depa-training/blob/main}/scenarios/covid/README.md
+  governing_law: IN

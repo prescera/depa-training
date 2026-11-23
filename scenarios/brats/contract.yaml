@@ -1,0 +1,49 @@
+# Contract template (DEPA Training v2, spec section 8.1) for the `brats` scenario.
+#
+# `depa contract init --template scenarios/brats/contract.yaml` substitutes dollar-brace placeholders (NAME, or NAME:-default)
+# from the environment, assigns a fresh contract_id, resolves each dataset's
+# manifest_digest from the CS catalog, embeds recipe.yaml (with its digest) and writes the
+# canonical JSON contract. Defaults target production platforms; for the local dev stack set
+# DEPA_PLATFORMS="[virtual]" and DEPA_CCR_RELEASES to the approved virtual release.
+schema: depa-training/contract/v2
+title: Brain tumour segmentation (DP U-Net)
+description: >-
+  Train a differentially private brain tumour segmentation model on four BraTS MRI sets held by separate providers.
+purpose: TRAINING
+parties:
+  tdc: ${DEPA_TDC:-tdc}
+  tdps: [brats-a, brats-b, brats-c, brats-d]
+validity:
+  not_before: ${DEPA_NOT_BEFORE:-now}       # "now" or an RFC 3339 timestamp
+  duration_days: ${DEPA_CONTRACT_DAYS:-30}  # alternatively not_after: <RFC 3339>
+datasets:
+  - {dataset_id: brats-a/brain-mri, version: "2026-11-01"}
+  - {dataset_id: brats-b/brain-mri, version: "2026-11-01"}
+  - {dataset_id: brats-c/brain-mri, version: "2026-11-01"}
+  - {dataset_id: brats-d/brain-mri, version: "2026-11-01"}
+computation:
+  tier: 1
+  platforms: ${DEPA_PLATFORMS:-[aci-snp, gcp-cs-tdx]}
+  # Trainer family `torch`. Deep learning (U-Net) weights as safetensors.
+  ccr_releases: ${DEPA_CCR_RELEASES:-[depa-ccr-torch-2.0.0-aci, depa-ccr-torch-2.0.0-gcp]}
+  recipes:
+    - path: recipe.yaml
+  max_runs: 3
+  max_duration_minutes: 240
+# Must satisfy every dataset's release policy (epsilon/delta at or below each max).
+privacy: {mode: dp, epsilon: 1.5, delta: 1.0e-04}
+output:
+  mode: tdc
+  recipients: ["party:${DEPA_TDC:-tdc}#h1"]
+  allowed_formats: [safetensors]
+  max_bytes: 268435456
+  # Scalar metrics only; anything else the trainer reports is dropped by the output gate.
+  metrics_allowlist: [dice_score, jaccard_index, hausdorff_distance, test_loss]
+  location:
+    connector: ${DEPA_OUTPUT_CONNECTOR:-file}
+    uri: ${DEPA_OUTPUT_URI:-file:///tmp/depa-dev-storage/outputs/}
+    # Production example: azure: {tenant_id: "<tenant>", client_id: "<client>"} (subject output:<tdc>)
+    federation: {}
+terms:
+  uri: ${DEPA_TERMS_BASE_URL:-https://github.com/prescera/depa-training/blob/main}/scenarios/brats/README.md
+  governing_law: IN

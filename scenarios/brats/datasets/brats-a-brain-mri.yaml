@@ -1,0 +1,54 @@
+# Dataset descriptor template (DEPA Training v2, spec section 7.2) for TDP `brats-a`.
+#
+# Resolved by `depa` with environment substitution of dollar-brace placeholders (NAME, or NAME:-default) before YAML
+# parsing; the defaults target the local dev stack (`depa dev up`, file connector).
+#   depa dataset create-key   -> creates brats-a/brain-mri#1 in the KMS
+#   depa dataset policy set   -> publishes the `policy` section below (owner-signed)
+#   depa dataset encrypt      -> encrypts `source` into dedf/1 (manifest.json + manifest.jws + objects/)
+#   depa dataset upload       -> copies the encrypted tree to `location`
+#   depa dataset publish      -> fills manifest_digest, size_bytes, records and posts to the CS catalog
+# `source` and `policy` are SDK-local and are never published.
+dataset_id: brats-a/brain-mri
+version: "2026-11-01"
+name: BraTS brain MRI set A
+description: >-
+  De-identified BraTS 2020 brain MRI middle axial slices (FLAIR inputs and tumour segmentation masks, PNG), set A.
+format: dedf/1
+schema:
+  type: image
+  files: ["BraTS20_Training_*/*_flair.png", "BraTS20_Training_*/*_seg.png"]
+location:
+  connector: ${BRATS_A_CONNECTOR:-file}
+  uri: ${BRATS_A_DATA_URI:-file:///tmp/depa-dev-storage/brats-a/brain-mri/2026-11-01/}
+  # region: ap-south-1        # required for s3
+# How a CCR obtains read access with the KMS-issued OIDC token (spec section 10); trust subject
+# `dataset:brats-a/brain-mri`. Not needed for the dev `file` connector. Production examples:
+#   aws:   {role_arn: "arn:aws:iam::<account>:role/depa-brats-a-brain-mri-reader"}
+#   gcp:   {audience: "//iam.googleapis.com/projects/<n>/locations/global/workloadIdentityPools/<pool>/providers/<provider>"}
+#   azure: {broker_url: "https://<tdp-broker>/api", audience: "api://depa-broker-<tdp>"}  # SAS broker, spec 10.1
+#          ({tenant_id, client_id} once the KMS can issue RS256 tokens)
+federation: {}
+kms:
+  url: ${DEPA_KMS_URL:-https://127.0.0.1:18000/app}
+  kid: brats-a/brain-mri#1
+
+# --- SDK-local sections (never published) ------------------------------------------------
+source:
+  # Preprocessed plaintext produced by this scenario's preprocessing step (relative to the
+  # scenario directory). Only the listed files are encrypted.
+  path: data/brats_A/preprocessed
+  include: ["**/*.png"]
+policy:
+  # Release Policy v1 (spec section 7.1). `virtual` is for the local dev stack only and MUST be
+  # removed (set BRATS_A_ALLOWED_PLATFORMS) before real data is published.
+  version: 1
+  allowed_platforms: ${BRATS_A_ALLOWED_PLATFORMS:-[aci-snp, gcp-cs-tdx, virtual]}
+  allowed_tiers: [1]
+  allowed_tdcs: ["${DEPA_TDC:-tdc}"]
+  allowed_purposes: [TRAINING]
+  privacy: {require_dp: true, max_epsilon: 1.5, max_delta: 0.01}
+  allowed_output_modes: [tdc]
+  allowed_audiences: ${BRATS_A_ALLOWED_AUDIENCES:-[sts.amazonaws.com]}
+  allowed_custom_measurements: []
+  max_runs_per_contract: 10
+  not_after: "2027-12-31T00:00:00Z"

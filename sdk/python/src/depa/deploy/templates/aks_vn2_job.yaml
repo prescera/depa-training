@@ -1,0 +1,58 @@
+# DEPA Training v2 clean-room job for AKS virtual nodes v2 (Azure confidential ACI, aci-snp).
+# Rendered by depa.deploy.aks: every placeholder is replaced by a JSON-encoded value
+# (a YAML double-quoted scalar, number or flow sequence), so substituted values cannot add keys.
+# The CCE policy annotation must be the policy whose sha256 is in the release's host_data; it pins
+# the image, command, env names and the absence of mounts/privileges below.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+  labels:
+    app.kubernetes.io/name: depa-ccr
+    app.kubernetes.io/managed-by: depa-cli
+    depa.ispirt.in/contract-id: ${contract_id}
+    depa.ispirt.in/release-id: ${release_id}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: ${active_deadline_seconds}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: depa-ccr
+        depa.ispirt.in/contract-id: ${contract_id}
+      annotations:
+        microsoft.containerinstance.virtualnode.ccepolicy: ${cce_policy}
+        microsoft.containerinstance.virtualnode.injectkubeproxy: "false"
+        microsoft.containerinstance.virtualnode.injectdns: "false"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 168.63.129.16
+      nodeSelector:
+        type: virtual-kubelet
+      tolerations:
+        - key: virtual-kubelet.io/provider
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: ccr
+          image: ${image}
+          command: ["depa-ccr", "run"]
+          workingDir: /depa
+          env: ${env}
+          resources:
+            requests:
+              cpu: ${cpu}
+              memory: ${memory}
+            limits:
+              cpu: ${cpu}
+              memory: ${memory}
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false

@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ispirt.github.io/depa-training/schemas/depa-env.json",
+  "title": "DEPA Training environment file (depa-env.yaml), generated from Terraform outputs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "collaborative",
+    "parties"
+  ],
+  "$defs": {
+    "party_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "https_url": {
+      "type": "string",
+      "pattern": "^https://[^\\s?#]+$",
+      "maxLength": 2048
+    },
+    "cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path (relative to this file) or inline PEM"
+    },
+    "federation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aws": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role_arn"
+          ],
+          "properties": {
+            "role_arn": {
+              "type": "string"
+            }
+          }
+        },
+        "gcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "audience"
+          ],
+          "properties": {
+            "audience": {
+              "type": "string"
+            },
+            "service_account": {
+              "type": "string"
+            }
+          }
+        },
+        "azure": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "broker_url",
+                "audience"
+              ],
+              "properties": {
+                "broker_url": {
+                  "$ref": "#/$defs/https_url"
+                },
+                "audience": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tenant_id",
+                "client_id"
+              ],
+              "properties": {
+                "tenant_id": {
+                  "type": "string"
+                },
+                "client_id": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connector",
+        "uri"
+      ],
+      "properties": {
+        "connector": {
+          "enum": [
+            "s3",
+            "azure-blob",
+            "gcs",
+            "https",
+            "file"
+          ]
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "/$"
+        },
+        "region": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "federation": {
+          "$ref": "#/$defs/federation"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "service_cert"
+      ],
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/https_url"
+        },
+        "service_cert": {
+          "$ref": "#/$defs/cert"
+        },
+        "oidc_issuer": {
+          "$ref": "#/$defs/https_url"
+        }
+      }
+    }
+  },
+  "properties": {
+    "collaborative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kms",
+        "cs"
+      ],
+      "properties": {
+        "kms": {
+          "$ref": "#/$defs/service"
+        },
+        "cs": {
+          "$ref": "#/$defs/service"
+        }
+      }
+    },
+    "parties": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "party_id",
+          "roles",
+          "key_dir"
+        ],
+        "properties": {
+          "party_id": {
+            "$ref": "#/$defs/party_id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "tdp",
+                "tdc",
+                "ccrp",
+                "dc-member",
+                "auditor"
+              ]
+            }
+          },
+          "key_dir": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/party_id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/location"
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/party_id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/location"
+      }
+    },
+    "compute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subscription_id",
+            "resource_group",
+            "cluster_name",
+            "namespace"
+          ],
+          "properties": {
+            "subscription_id": {
+              "type": "string"
+            },
+            "resource_group": {
+              "type": "string"
+            },
+            "cluster_name": {
+              "type": "string"
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            },
+            "context": {
+              "type": "string",
+              "description": "kubectl context (default: cluster_name)"
+            }
+          }
+        },
+        "gcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project",
+            "zone",
+            "service_account"
+          ],
+          "properties": {
+            "project": {
+              "type": "string"
+            },
+            "zone": {
+              "type": "string"
+            },
+            "network": {
+              "type": "string"
+            },
+            "subnetwork": {
+              "type": "string"
+            },
+            "service_account": {
+              "type": "string"
+            },
+            "machine_type": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "login_server"
+      ],
+      "properties": {
+        "login_server": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "releases_dir": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

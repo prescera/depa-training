@@ -1,0 +1,5 @@
+# Lint settings for the e2e suite: the SDK's rules plus the usual test relaxations.
+extend = "../../sdk/python/pyproject.toml"
+
+[lint.per-file-ignores]
+"*.py" = ["S101", "S105", "S106", "S108", "PLR2004", "PLC0415", "TRY", "E402"]

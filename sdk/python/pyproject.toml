@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=77,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "depa"
+version = "2.0.0"
+description = "DEPA Training v2: Python SDK, depa CLI and confidential clean-room runtime agent"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "iSPIRT DEPA Training contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Security :: Cryptography",
+]
+dependencies = [
+    "rfc8785>=0.1.4,<0.2",
+    "cryptography>=43,<51",
+    "pyhpke>=0.6.1,<0.7",
+    "httpx>=0.27,<0.29",
+    "typer>=0.12,<0.30",
+    "PyYAML>=6.0.1,<7",
+    "jsonschema>=4.21,<5",
+]
+
+[project.optional-dependencies]
+aws = ["boto3>=1.34,<2"]
+dev = [
+    "boto3>=1.34,<2",
+    "moto[s3,sts]>=5.0,<6",
+    "respx>=0.21,<0.24",
+    "pytest>=8,<10",
+    "ruff>=0.6,<0.18",
+    "mypy>=1.11,<3",
+    "types-PyYAML>=6.0,<7",
+    "types-jsonschema>=4.21,<5",
+]
+
+[project.scripts]
+depa = "depa.cli.main:main"
+depa-ccr = "depa.ccr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+depa = ["py.typed", "contract/schemas/*.json", "deploy/templates/*.yaml", "env/schema.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["slow: long-running tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "C4", "SIM", "RUF", "PTH", "TRY", "PL"]
+ignore = [
+    "PLR0913",  # explicit keyword-heavy APIs are intentional
+    "PLR2004",  # protocol constants are named where it matters
+    "TRY003",   # messages are the error codes' context
+    "PLR0911",
+    "PLR0912",
+    "PLR0915",
+    "S603",     # subprocess calls use fixed argv lists, never a shell
+    "S607",
+    "PLR0917",  # Typer commands and keyword-style APIs
+    "PTH101",   # os.chmod(..., follow_symlinks=False) is deliberate
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "PLR2004", "S311", "PLC0415", "B017", "PT011", "TRY"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["depa"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["depa.core.*", "depa.ccr.*", "depa.attestation.*", "depa.clients.*", "depa.contract.*", "depa.storage.*", "depa.receipts"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["rfc8785", "pyhpke", "pyhpke.*", "boto3", "boto3.*", "botocore", "botocore.*", "moto", "respx", "depa_train", "depa_train.*"]
+ignore_missing_imports = true
