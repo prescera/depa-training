@@ -1,3 +1,13 @@
+> **DEPA Training v2 layout.** This scenario is now a declarative recipe, [`recipe.yaml`](recipe.yaml),
+> executed by `depa-train` (see [`trainers/README.md`](../../trainers/README.md)). The v1 `config/`, `src/`,
+> containers and deployment scripts are gone.
+> - `prepare/prepare.sh --party <icmr | cowin | index> [--out DIR]` builds one provider's plaintext
+>   dataset (non-interactive). Source: the bundled synthetic POC exports in `data/<party>/`. Default output: `data/<party>/preprocessed/dp_<party>_standardised_anon.csv`.
+> - `prepare/prepare_all.sh --inputs DIR` prepares every party and stages `DIR/<alias>` for a local
+>   `depa-train run --recipe recipe.yaml --inputs DIR --outputs OUT --result result.json`.
+> - Dataset descriptors and the contract template (`datasets/`, `contract.yaml`) are maintained with the SDK.
+> The prose below still describes v1 and will be rewritten.
+
 # COVID-19 Predictive Modelling
 
 ## Scenario Type

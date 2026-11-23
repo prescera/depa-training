@@ -1,0 +1,111 @@
+# Credit risk: left-join six datasets from four providers on SK_ID_CURR and train a DP gradient-boosted
+# tree model (dp-xgboost). Feature bounds and categories are declared (public), as DP requires.
+schema: depa-training/recipe/v1
+name: credit-risk-dp-xgboost
+tier: 1
+family: classic
+inputs:
+  - {alias: applications, dataset_id: bank-a/credit-applications}
+  - {alias: previous, dataset_id: bank-a/previous-applications}
+  - {alias: installments, dataset_id: bank-a/payment-installments}
+  - {alias: bureau, dataset_id: bureau/bureau-records}
+  - {alias: pos_cash, dataset_id: fintech/pos-cash-balance}
+  - {alias: credit_card, dataset_id: bank-b/credit-card-balance}
+steps:
+  - id: join
+    uses: sql/duckdb@1
+    with:
+      tables:
+        - {name: applications, input: applications, files: "*.parquet", format: parquet}
+        - {name: previous, input: previous, files: "*.parquet", format: parquet}
+        - {name: installments, input: installments, files: "*.parquet", format: parquet}
+        - {name: bureau, input: bureau, files: "*.parquet", format: parquet}
+        - {name: pos_cash, input: pos_cash, files: "*.parquet", format: parquet}
+        - {name: credit_card, input: credit_card, files: "*.parquet", format: parquet}
+      query: |
+        SELECT a.SK_ID_CURR, a.TARGET,
+               a.INCOME_PER_PERSON, a.CREDIT_TO_INCOME, a.CNT_CHILDREN, a.AGE_YEARS, a.YEARS_EMPLOYED,
+               a.NAME_CONTRACT_TYPE, a.FLAG_OWN_CAR, a.FLAG_OWN_REALTY,
+               p.AMT_APPLICATION_count, p.AMT_APPLICATION_mean, p.AMT_CREDIT_mean, p.AMT_DOWN_PAYMENT_mean,
+               i.AMT_PAYMENT_sum, i.AMT_INSTALMENT_sum, i.PAYMENT_DIFF_mean, i.LATE_PAYMENT_mean,
+               b.BUREAU_COUNT_sum, b.AMT_CREDIT_SUM_mean, b.AMT_CREDIT_SUM_DEBT_mean, b.STATUS_PAST_DUE_RATE_mean,
+               pos.SK_DPD_max AS POS_DPD_MAX, pos.SK_DPD_DEF_mean AS POS_DPD_DEF_MEAN,
+               pos.MONTHS_BALANCE_count AS POS_MONTHS,
+               cc.AMT_BALANCE_mean AS CC_BALANCE_MEAN, cc.AMT_CREDIT_LIMIT_ACTUAL_max AS CC_LIMIT_MAX,
+               cc.SK_DPD_max AS CC_DPD_MAX, cc.SK_DPD_DEF_mean AS CC_DPD_DEF_MEAN
+        FROM applications a
+        LEFT JOIN previous p ON a.SK_ID_CURR = p.SK_ID_CURR
+        LEFT JOIN installments i ON a.SK_ID_CURR = i.SK_ID_CURR
+        LEFT JOIN bureau b ON a.SK_ID_CURR = b.SK_ID_CURR
+        LEFT JOIN pos_cash pos ON a.SK_ID_CURR = pos.SK_ID_CURR
+        LEFT JOIN credit_card cc ON a.SK_ID_CURR = cc.SK_ID_CURR
+      privacy_unit: SK_ID_CURR
+  - id: split
+    uses: tabular/split@1
+    with:
+      source: {step: join}
+      target: TARGET
+      task: classification
+      classes: [0, 1]
+      features: [INCOME_PER_PERSON, CREDIT_TO_INCOME, CNT_CHILDREN, AGE_YEARS, YEARS_EMPLOYED,
+                 NAME_CONTRACT_TYPE, FLAG_OWN_CAR, FLAG_OWN_REALTY,
+                 AMT_APPLICATION_count, AMT_APPLICATION_mean, AMT_CREDIT_mean, AMT_DOWN_PAYMENT_mean,
+                 AMT_PAYMENT_sum, AMT_INSTALMENT_sum, PAYMENT_DIFF_mean, LATE_PAYMENT_mean,
+                 BUREAU_COUNT_sum, AMT_CREDIT_SUM_mean, AMT_CREDIT_SUM_DEBT_mean, STATUS_PAST_DUE_RATE_mean,
+                 POS_DPD_MAX, POS_DPD_DEF_MEAN, POS_MONTHS, CC_BALANCE_MEAN, CC_LIMIT_MAX, CC_DPD_MAX,
+                 CC_DPD_DEF_MEAN]
+      missing: {strategy: constant, value: 0}   # absent in a provider's table = no history
+      categorical:
+        columns: [NAME_CONTRACT_TYPE, FLAG_OWN_CAR, FLAG_OWN_REALTY]
+        encoding: onehot
+        categories:
+          NAME_CONTRACT_TYPE: [Cash loans, Revolving loans]
+          FLAG_OWN_CAR: [Y, N]
+          FLAG_OWN_REALTY: [Y, N]
+      bounds:
+        INCOME_PER_PERSON: [0, 1000000]
+        CREDIT_TO_INCOME: [0, 20]
+        CNT_CHILDREN: [0, 10]
+        AGE_YEARS: [18, 80]
+        YEARS_EMPLOYED: [0, 50]
+        AMT_APPLICATION_count: [0, 50]
+        AMT_APPLICATION_mean: [0, 2000000]
+        AMT_CREDIT_mean: [0, 2000000]
+        AMT_DOWN_PAYMENT_mean: [0, 100000]
+        AMT_PAYMENT_sum: [0, 5000000]
+        AMT_INSTALMENT_sum: [0, 5000000]
+        PAYMENT_DIFF_mean: [-100000, 100000]
+        LATE_PAYMENT_mean: [0, 1]
+        BUREAU_COUNT_sum: [0, 50]
+        AMT_CREDIT_SUM_mean: [0, 5000000]
+        AMT_CREDIT_SUM_DEBT_mean: [0, 5000000]
+        STATUS_PAST_DUE_RATE_mean: [0, 1]
+        POS_DPD_MAX: [0, 365]
+        POS_DPD_DEF_MEAN: [0, 365]
+        POS_MONTHS: [0, 200]
+        CC_BALANCE_MEAN: [0, 1000000]
+        CC_LIMIT_MAX: [0, 1000000]
+        CC_DPD_MAX: [0, 365]
+        CC_DPD_DEF_MEAN: [0, 365]
+      splits: {train: 0.8, val: 0.1, test: 0.1}
+      stratify: true
+      seed: 42
+  - id: train
+    uses: xgboost/train@1
+    with:
+      data: {step: split}
+      objective: "binary:logistic"
+      num_boost_round: 20
+      # Strong L2 / min_child_weight keep noisy leaf denominators (H + lambda) well away from zero;
+      # without them DP leaf noise can flip leaf signs. subsample < 1 buys privacy amplification.
+      params: {max_depth: 3, learning_rate: 0.3, subsample: 0.5, min_child_weight: 50, lambda: 50}
+      save: {output: model, format: xgboost-json}
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy, roc_auc]
+privacy: {mode: dp, epsilon: 4.0, delta: 1.0e-5}
+outputs:
+  - {name: model, format: xgboost-json}
+metrics: [accuracy, roc_auc]

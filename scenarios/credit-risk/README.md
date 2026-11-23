@@ -1,3 +1,13 @@
+> **DEPA Training v2 layout.** This scenario is now a declarative recipe, [`recipe.yaml`](recipe.yaml),
+> executed by `depa-train` (see [`trainers/README.md`](../../trainers/README.md)). The v1 `config/`, `src/`,
+> containers and deployment scripts are gone.
+> - `prepare/prepare.sh --party <bank-a | bank-b | bureau | fintech> [--out DIR]` builds one provider's plaintext
+>   dataset (non-interactive). Source: Home Credit tables: synthetic and schema-faithful by default (deterministic, so parties generate consistent client ids independently); `FETCH_SOURCE=kaggle` downloads the real competition data (needs `KAGGLE_USERNAME`/`KAGGLE_KEY`). Default output: `data/<party>/preprocessed/*.parquet` (bank-a publishes three datasets).
+> - `prepare/prepare_all.sh --inputs DIR` prepares every party and stages `DIR/<alias>` for a local
+>   `depa-train run --recipe recipe.yaml --inputs DIR --outputs OUT --result result.json`.
+> - Dataset descriptors and the contract template (`datasets/`, `contract.yaml`) are maintained with the SDK.
+> The prose below still describes v1 and will be rewritten.
+
 # Home Credit Default Risk Prediction
 
 ## Scenario Type

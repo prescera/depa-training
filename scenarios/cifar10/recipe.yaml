@@ -1,0 +1,55 @@
+# CIFAR-10: train a small CNN (v1 LeNet-style ModelFactory config) on one provider's images. No DP.
+schema: depa-training/recipe/v1
+name: cifar10-cnn
+tier: 1
+family: torch
+inputs:
+  - {alias: cifar10, dataset_id: cifar10/object-recognition}
+steps:
+  - id: train
+    uses: torch/train@1
+    with:
+      data:
+        kind: tensors
+        input: cifar10
+        file: cifar10-dataset.safetensors
+        format: safetensors
+        splits: {train: 0.8, val: 0.15, test: 0.05}
+      task: multiclass
+      model:
+        kind: factory
+        config:
+          layers:
+            conv1: {class: nn.Conv2d, params: {in_channels: 3, out_channels: 6, kernel_size: 5}}
+            pool: {class: nn.MaxPool2d, params: {kernel_size: 2, stride: 2}}
+            conv2: {class: nn.Conv2d, params: {in_channels: 6, out_channels: 16, kernel_size: 5}}
+            fc1: {class: nn.Linear, params: {in_features: 400, out_features: 120}}
+            fc2: {class: nn.Linear, params: {in_features: 120, out_features: 84}}
+            fc3: {class: nn.Linear, params: {in_features: 84, out_features: 10}}
+          input: [x]
+          forward:
+            - {ops: [conv1, F.relu, pool], input: [x], output: x1}
+            - {ops: [conv2, F.relu, pool], input: [x1], output: x2}
+            - {ops: [[torch.flatten, {start_dim: 1}]], input: [x2], output: x3}
+            - {ops: [fc1, F.relu], input: [x3], output: x4}
+            - {ops: [fc2, F.relu], input: [x4], output: x5}
+            - {ops: [fc3], input: [x5], output: x6}
+          output: [x6]
+      loss: {class: nn.CrossEntropyLoss, params: {reduction: mean}}
+      training:
+        epochs: 2
+        batch_size: 64
+        optimizer: {name: Adam, params: {lr: 0.001}}
+      output_activation: softmax
+      save: {output: model, format: safetensors}
+      seed: 3
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy, f1_score]
+      average: macro
+privacy: {mode: none}
+outputs:
+  - {name: model, format: safetensors}
+metrics: [accuracy, f1_score, test_loss]

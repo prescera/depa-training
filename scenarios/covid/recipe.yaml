@@ -1,0 +1,86 @@
+# COVID-19: join three providers' tokenised records on the hashed mobile number, then train a
+# binary MLP classifier with DP-SGD. Preprocessing is data-independent (declared bounds) as DP requires.
+schema: depa-training/recipe/v1
+name: covid-dp-mlp
+tier: 1
+family: torch
+inputs:
+  - {alias: icmr, dataset_id: icmr/covid-test-results}
+  - {alias: cowin, dataset_id: cowin/vaccination-records}
+  - {alias: index, dataset_id: index/patient-records}
+steps:
+  - id: join
+    uses: sql/duckdb@1
+    with:
+      tables:
+        - {name: icmr, input: icmr, files: "*.csv", format: csv}
+        - {name: cowin, input: cowin, files: "*.csv", format: csv}
+        - {name: idx, input: index, files: "*.csv", format: csv}
+      query: |
+        SELECT icmr.pk_mobno_hashed,
+               icmr.icmr_a_icmr_test_result,
+               icmr.icmr_a_test_ct_value,
+               icmr.icmr_a_sample_genetic_sequenced,
+               icmr.fk_genetic_strain,
+               idx.index_pasymp, idx.index_dsinfection, idx.index_potravel, idx.index_page,
+               cowin.cowin_age, cowin.cowin_vaccine_name
+        FROM icmr
+        JOIN idx ON idx.pk_mobno_hashed = icmr.pk_mobno_hashed
+        JOIN cowin ON cowin.pk_mobno_hashed = icmr.pk_mobno_hashed
+      privacy_unit: pk_mobno_hashed
+  - id: split
+    uses: tabular/split@1
+    with:
+      source: {step: join}
+      target: icmr_a_icmr_test_result
+      task: classification
+      classes: [0, 1]
+      features: [icmr_a_test_ct_value, icmr_a_sample_genetic_sequenced, fk_genetic_strain, index_pasymp,
+                 index_dsinfection, index_potravel, index_page, cowin_age, cowin_vaccine_name]
+      missing: {strategy: constant, value: 0}
+      bounds:
+        icmr_a_test_ct_value: [0, 45]
+        index_page: [0, 120]
+        cowin_age: [0, 120]
+        cowin_vaccine_name: [0, 3]
+      default_bounds: [0, 1]
+      scale: minmax
+      splits: {train: 0.7, val: 0.2, test: 0.1}
+      stratify: true
+      seed: 42
+  - id: train
+    uses: torch/train@1
+    with:
+      data: {kind: tabular, step: split}
+      task: binary
+      model:
+        kind: factory
+        config:
+          layers:
+            fc1: {class: nn.Linear, params: {in_features: 9, out_features: 128}}
+            fc2: {class: nn.Linear, params: {in_features: 128, out_features: 64}}
+            fc3: {class: nn.Linear, params: {in_features: 64, out_features: 1}}
+            dropout: {class: nn.Dropout, params: {p: 0.3}}
+          input: [x]
+          forward:
+            - {ops: [fc1, torch.relu, dropout], input: [x], output: x1}
+            - {ops: [fc2, torch.relu, dropout], input: [x1], output: x2}
+            - {ops: [fc3, torch.sigmoid], input: [x2], output: x3}
+          output: [x3]
+      loss: {class: torch.nn.BCELoss}
+      training:
+        epochs: 30
+        batch_size: 128
+        optimizer: {name: Adam, params: {lr: 0.01}}
+        max_grad_norm: 1.0
+      save: {output: model, format: onnx}
+      seed: 7
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy, f1_score, roc_auc]
+privacy: {mode: dp, epsilon: 1.0, delta: 1.0e-5}
+outputs:
+  - {name: model, format: onnx}
+metrics: [accuracy, f1_score, roc_auc, test_loss]

@@ -1,0 +1,45 @@
+# LLM SFT: two providers pool synthetic note-to-JSON examples; the consumer's small base model
+# (SmolLM2-135M, supplied as an input dataset) is LoRA fine-tuned on CPU. Output: the LoRA adapter.
+schema: depa-training/recipe/v1
+name: llm-sft-lora
+tier: 1
+family: llm
+inputs:
+  - {alias: base_model, dataset_id: tdc/smollm2-135m}
+  - {alias: bank_a, dataset_id: bank-a/transaction-notes}
+  - {alias: shop_b, dataset_id: shop-b/order-notes}
+steps:
+  - id: pool
+    uses: sql/duckdb@1
+    with:
+      tables:
+        - {name: bank_notes, input: bank_a, files: "*.jsonl", format: jsonl}
+        - {name: shop_notes, input: shop_b, files: "*.jsonl", format: jsonl}
+      query: |
+        SELECT example_id, prompt, completion FROM bank_notes
+        UNION ALL
+        SELECT example_id, prompt, completion FROM shop_notes
+  - id: sft
+    uses: hf/sft@1
+    with:
+      base_model: {input: base_model}
+      data: {step: pool}
+      format:
+        kind: prompt_completion
+        template: "### Note:\n{prompt}\n### JSON:\n"
+      max_seq_len: 128
+      completion_only_loss: true
+      lora: {r: 8, alpha: 16, dropout: 0.05, target_modules: [q_proj, k_proj, v_proj, o_proj]}
+      training:
+        epochs: 1
+        batch_size: 8
+        learning_rate: 0.001
+        warmup_ratio: 0.05
+        scheduler: cosine
+      eval_fraction: 0.1
+      save: {output: adapter, format: safetensors}
+      seed: 13
+privacy: {mode: none}
+outputs:
+  - {name: adapter, format: safetensors}
+metrics: [train_loss, eval_loss, perplexity]

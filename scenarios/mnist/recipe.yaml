@@ -1,0 +1,58 @@
+# MNIST: train the v1 CNN (now declared as a ModelFactory config instead of a TDC-supplied ONNX file)
+# with the v1 focal loss, and export the trained model as ONNX. No DP.
+schema: depa-training/recipe/v1
+name: mnist-cnn
+tier: 1
+family: torch
+inputs:
+  - {alias: mnist, dataset_id: mnist/handwritten-digits}
+steps:
+  - id: train
+    uses: torch/train@1
+    with:
+      data:
+        kind: tensors
+        input: mnist
+        file: mnist-dataset.h5
+        format: hdf5
+        splits: {train: 0.7, val: 0.2, test: 0.1}
+      task: multiclass
+      model:
+        kind: factory
+        config:
+          layers:
+            conv1: {class: nn.Conv2d, params: {in_channels: 1, out_channels: 32, kernel_size: 3}}
+            pool: {class: nn.MaxPool2d, params: {kernel_size: 2, stride: 2}}
+            conv2: {class: nn.Conv2d, params: {in_channels: 32, out_channels: 64, kernel_size: 3}}
+            fc1: {class: nn.Linear, params: {in_features: 1600, out_features: 128}}
+            fc2: {class: nn.Linear, params: {in_features: 128, out_features: 10}}
+          input: [x]
+          forward:
+            - {ops: [conv1, F.relu, pool], input: [x], output: x1}
+            - {ops: [conv2, F.relu, pool], input: [x1], output: x2}
+            - {ops: [[torch.flatten, {start_dim: 1}], fc1, F.relu, fc2], input: [x2], output: logits}
+          output: [logits]
+      loss:   # focal loss: alpha * (1 - p_t)^gamma * CE
+        expression: alpha * (1 - pt)**gamma * ce_loss
+        components:
+          ce_loss: {class: nn.CrossEntropyLoss, params: {reduction: none}}
+          pt: {class: torch.exp, params: {input: "-$ce_loss"}}
+        variables: {alpha: 1, gamma: 2}
+        reduction: mean
+      training:
+        epochs: 1
+        batch_size: 64
+        optimizer: {name: Adam, params: {lr: 0.001}}
+      output_activation: softmax
+      save: {output: model, format: onnx}
+      seed: 5
+  - id: evaluate
+    uses: eval/classification@1
+    with:
+      predictions: {step: train}
+      metrics: [accuracy, f1_score]
+      average: macro
+privacy: {mode: none}
+outputs:
+  - {name: model, format: onnx}
+metrics: [accuracy, f1_score, test_loss]

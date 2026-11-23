@@ -1,9 +1,0 @@
-{
-    "task_type": "classification",
-    "metrics": [
-        "accuracy",
-        "roc_auc",
-        "confusion_matrix",
-        "classification_report"
-    ]
-}

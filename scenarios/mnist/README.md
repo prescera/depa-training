@@ -1,3 +1,13 @@
+> **DEPA Training v2 layout.** This scenario is now a declarative recipe, [`recipe.yaml`](recipe.yaml),
+> executed by `depa-train` (see [`trainers/README.md`](../../trainers/README.md)). The v1 `config/`, `src/`,
+> containers and deployment scripts are gone.
+> - `prepare/prepare.sh --party <mnist> [--out DIR]` builds one provider's plaintext
+>   dataset (non-interactive). Source: the MNIST IDX files (downloaded, MD5-verified). Default output: `data/preprocessed/mnist-dataset.h5`.
+> - `prepare/prepare_all.sh --inputs DIR` prepares every party and stages `DIR/<alias>` for a local
+>   `depa-train run --recipe recipe.yaml --inputs DIR --outputs OUT --result result.json`.
+> - Dataset descriptors and the contract template (`datasets/`, `contract.yaml`) are maintained with the SDK.
+> The prose below still describes v1 and will be rewritten.
+
 # MNIST Handwritten Digits Classification
 
 ## Scenario Type
