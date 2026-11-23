@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import time
 from collections.abc import Mapping
@@ -42,6 +43,29 @@ def _ensure_party(profile: Profile, party_id: str, roles: list[str]) -> dict[str
     return generate_party(profile, party_id=party_id, name=party_id, roles=roles)
 
 
+def _prepare_missing(scenario_dir: Path, templates: list[Any], log: Any) -> None:
+    """Run ``prepare/prepare.sh --party <owner>`` for owners whose plaintext source is missing,
+    as ``depa scenario deploy --prepare auto`` does (fresh checkouts and CI have no data)."""
+    missing = sorted(
+        {
+            t.dataset_id.split("/")[0]
+            for t in templates
+            if t.source is not None and not (t.source.path.is_dir() and any(t.source.path.iterdir()))
+        }
+    )
+    if not missing:
+        return
+    script = scenario_dir / "prepare" / "prepare.sh"
+    if not script.exists():
+        raise ValidationError(f"source data missing for {missing} and {script} does not exist", code="bad_scenario")
+    for owner in missing:
+        log(f"preparing data for {owner}")
+        proc = subprocess.run([str(script), "--party", owner], capture_output=True, check=False)
+        if proc.returncode != 0:
+            tail = proc.stderr.decode("utf-8", "replace")[-3000:]
+            raise ServiceError(f"prepare --party {owner} failed:\n{tail}", service="prepare", code="prepare_failed")
+
+
 def run_scenario(
     scenario_dir: Path,
     *,
@@ -67,6 +91,7 @@ def run_scenario(
     if not templates:
         raise ValidationError(f"{scenario_dir}/datasets has no templates", code="bad_scenario")
     owners = sorted({t.dataset_id.split("/")[0] for t in templates})
+    _prepare_missing(scenario_dir, templates, log)
 
     log(f"registering parties {[*owners, tdc]}")
     for party_id in sorted({*owners, tdc}):
