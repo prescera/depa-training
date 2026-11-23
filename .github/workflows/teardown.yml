@@ -1,0 +1,75 @@
+name: Pilot · teardown
+
+# Destroys 2-workloads, then 1-platform. Key Vaults are soft-deleted (purge protection) and keep
+# their names reserved for the retention period; ledgers and storage are deleted.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment of the pilot
+        type: environment
+        required: true
+      confirm:
+        description: Type the environment name again to confirm
+        type: string
+        required: true
+
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      confirm:
+        type: string
+        required: true
+permissions: {}
+
+concurrency:
+  group: pilot-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    if: inputs.confirm == inputs.environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PILOT_SCENARIOS: ${{ vars.PILOT_SCENARIOS }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      AKS_ADMIN_GROUP_OBJECT_ID: ${{ vars.AKS_ADMIN_GROUP_OBJECT_ID }}
+      DEPLOYER_OBJECT_ID: ${{ vars.DEPLOYER_OBJECT_ID }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: pilot
+        uses: ./.github/actions/pilot-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Destroy 2-workloads
+        env:
+          PILOT: ${{ steps.pilot.outputs.pilot-dir }}
+        run: |
+          sudo az aks install-cli --only-show-errors >/dev/null
+          if terraform -chdir="${PILOT}/1-platform" output -json pilot_platform >"${RUNNER_TEMP}/platform.json" 2>/dev/null; then
+            jq '{platform: .}' "${RUNNER_TEMP}/platform.json" >"${PILOT}/2-workloads/platform.auto.tfvars.json"
+            # Placeholders: destroy does not read the package or use the JWKS.
+            jq -n '{broker_package_path: "unused.zip",
+                    kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' \
+              >"${PILOT}/2-workloads/broker.auto.tfvars.json"
+            terraform -chdir="${PILOT}/2-workloads" destroy -no-color -auto-approve
+          fi
+      - name: Destroy 1-platform
+        run: terraform -chdir="${{ steps.pilot.outputs.pilot-dir }}/1-platform" destroy -no-color -auto-approve

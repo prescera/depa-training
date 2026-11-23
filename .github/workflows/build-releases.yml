@@ -1,0 +1,91 @@
+name: Pilot · build CCR releases
+
+# Builds and pushes CCR images to the pilot ACR, generates the CCE policies (aci-snp) and writes
+# release manifests, published as the artifact ccr-releases-<environment> for run-scenario.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment of the pilot
+        type: environment
+        required: true
+      version:
+        description: Release version (semver)
+        type: string
+        default: 2.0.0-pilot
+      families:
+        description: Trainer families (comma separated)
+        type: string
+        default: classic
+
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      version:
+        type: string
+        default: 2.0.0-pilot
+      families:
+        type: string
+        default: classic
+permissions: {}
+
+concurrency:
+  group: pilot-${{ inputs.environment }}-releases
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      PILOT_SCENARIOS: ${{ vars.PILOT_SCENARIOS }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      AKS_ADMIN_GROUP_OBJECT_ID: ${{ vars.AKS_ADMIN_GROUP_OBJECT_ID }}
+      DEPLOYER_OBJECT_ID: ${{ vars.DEPLOYER_OBJECT_ID }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space for the torch/llm stacks
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - id: pilot
+        uses: ./.github/actions/pilot-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install the pinned confcom extension
+        run: az extension add --name confcom --version "$(tr -d '[:space:]' < ccr/policy/confcom.version)" --yes
+      - name: Build, push, measure
+        env:
+          BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PILOT: ${{ steps.pilot.outputs.pilot-dir }}
+          VERSION: ${{ inputs.version }}
+          FAMILIES: ${{ inputs.families }}
+        run: |
+          registry="$(terraform -chdir="${PILOT}/1-platform" output -json pilot_platform | jq -r '.registry.login_server')"
+          deploy/scripts/build-releases.sh --registry "${registry}" --version "${VERSION}" \
+            --families "${FAMILIES}" --out-dir "${RUNNER_TEMP}/releases" --build-url "${BUILD_URL}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/releases/*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ccr-releases-${{ inputs.environment }}
+          path: ${{ runner.temp }}/releases/
+          if-no-files-found: error
+          retention-days: 90

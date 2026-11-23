@@ -1,0 +1,78 @@
+name: E2E (local sandboxes)
+
+# Cheap always-on end-to-end check: real KMS + Contract Service on CCF virtual sandboxes (docker),
+# virtual clean room, credit-risk scenario, plus the e2e pytest suite. No cloud access.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: e2e-local-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      DEPA_KMS_REPO: ${{ github.workspace }}/.deps/depa-training-kms-azure
+      DEPA_CS_REPO: ${{ github.workspace }}/.deps/contract-service
+      DEPA_HOME: ${{ github.workspace }}/.depa-home
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5" # dp-xgboost builds from its hashed sdist
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pick the service branch (same name if it exists, else main)
+        id: ref
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          for repo in depa-training-kms-azure contract-service; do
+            if git ls-remote --exit-code --heads "https://github.com/${OWNER}/${repo}.git" "${BRANCH}" >/dev/null; then
+              echo "${repo//-/_}=${BRANCH}" >>"${GITHUB_OUTPUT}"
+            else
+              echo "${repo//-/_}=main" >>"${GITHUB_OUTPUT}"
+            fi
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/depa-training-kms-azure
+          ref: ${{ steps.ref.outputs.depa_training_kms_azure }}
+          path: .deps/depa-training-kms-azure
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/contract-service
+          ref: ${{ steps.ref.outputs.contract_service }}
+          path: .deps/contract-service
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the SDK and the classic trainer stack (hash-locked)
+        run: |
+          python -m pip install --require-hashes -r trainers/requirements/classic.txt
+          python -m pip install --no-deps ./trainers
+          python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
+          python -m pip install --no-deps ./sdk/python
+          python -m pip install "pytest>=8,<10"
+      - name: depa dev up
+        run: depa dev up
+      - name: depa dev scenario run credit-risk (virtual clean room)
+        run: depa dev scenario run credit-risk
+      - name: E2E test suite
+        run: python -m pytest -p no:cacheprovider tests/e2e
+      - name: depa dev down --purge
+        if: always()
+        run: depa dev down --purge

@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ccr-release:
+    name: depa-ccr-${{ matrix.family }} release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        family: [classic, torch, llm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space for the torch/llm stacks
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install the pinned confcom extension
+        run: az extension add --name confcom --version "$(tr -d '[:space:]' < ccr/policy/confcom.version)" --yes
+      - name: Build, push and measure
+        id: release
+        env:
+          FAMILY: ${{ matrix.family }}
+          BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          out="${RUNNER_TEMP}/releases"
+          common=(--family "${FAMILY}" --version "${version}" --out-dir "${out}" --build-url "${BUILD_URL}")
+          # aci-snp: builds + pushes the image (SBOM + provenance), generates the CCE policy.
+          ccr/tools/build-release.sh "${common[@]}" --platform aci --repository "${repository}" --push
+          image="$(jq -r '.deployment.image' "${out}/depa-ccr-${FAMILY}-${version}-aci.json")"
+          # Debug variant (stdio enabled) of the same image, for DC-approved troubleshooting only.
+          ccr/tools/build-release.sh "${common[@]}" --platform aci --image "${image}" --debug
+          # gcp-cs-tdx and virtual reuse the same digest.
+          ccr/tools/build-release.sh "${common[@]}" --platform gcp --image "${image}"
+          ccr/tools/build-release.sh "${common[@]}" --platform virtual --image "${image}"
+          echo "image=${image%@*}" >>"${GITHUB_OUTPUT}"
+          echo "digest=${image#*@}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "### depa-ccr-${FAMILY} ${version}"
+            echo '```'
+            for f in "${out}"/*.json; do
+              jq -r '"\(.release.release_id)  \(.release.measurements | tostring)"' "$f" | cut -c1-200
+            done
+            echo '```'
+          } >>"${GITHUB_STEP_SUMMARY}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.release.outputs.image }}
+          subject-digest: ${{ steps.release.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/releases/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ccr-releases-${{ matrix.family }}
+          path: ${{ runner.temp }}/releases/
+          if-no-files-found: error
+
+  publish:
+    name: Draft GitHub release
+    needs: ccr-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ccr-releases-*
+          path: releases
+          merge-multiple: true
+      - name: Create draft release with manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd releases && sha256sum ./* > SHA256SUMS)
+          gh release create "${GITHUB_REF_NAME}" releases/* \
+            --repo "${GITHUB_REPOSITORY}" --draft --verify-tag --title "${GITHUB_REF_NAME}" \
+            --notes "CCR release manifests (ccr/releases/<release_id>.json). Commit them to ccr/releases/ and submit approve_ccr_release proposals for the non-debug records to both KMS and CS."

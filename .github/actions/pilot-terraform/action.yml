@@ -1,0 +1,109 @@
+name: azure-pilot terraform setup
+description: >-
+  Check out the DC service repositories, log in to Azure with GitHub OIDC, write the pilot
+  tfvars from repository variables and initialise both azure-pilot phases against the remote
+  state. The calling job needs `id-token: write` and the vars documented in deploy/README.md.
+
+inputs:
+  environment:
+    description: GitHub environment / pilot name (state key prefix)
+    required: true
+  services-ref:
+    description: Git ref of depa-training-kms-azure and contract-service
+    required: true
+  client-id:
+    required: true
+  tenant-id:
+    required: true
+  subscription-id:
+    required: true
+
+outputs:
+  pilot-dir:
+    description: Path of deploy/terraform/environments/azure-pilot
+    value: ${{ steps.init.outputs.pilot-dir }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ github.repository_owner }}/depa-training-kms-azure
+        ref: ${{ inputs.services-ref }}
+        path: .deps/depa-training-kms-azure
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ github.repository_owner }}/contract-service
+        ref: ${{ inputs.services-ref }}
+        path: .deps/contract-service
+        persist-credentials: false
+    - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      with:
+        terraform_version: "1.16.5"
+        terraform_wrapper: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.12"
+    - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+    - id: init
+      shell: bash
+      env:
+        PILOT_ENV: ${{ inputs.environment }}
+        ARM_USE_OIDC: "true"
+        ARM_CLIENT_ID: ${{ inputs.client-id }}
+        ARM_TENANT_ID: ${{ inputs.tenant-id }}
+        ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
+      run: |
+        set -euo pipefail
+        python -m pip install --quiet "PyYAML==6.0.4"
+        pilot="${GITHUB_WORKSPACE}/deploy/terraform/environments/azure-pilot"
+        echo "pilot-dir=${pilot}" >>"${GITHUB_OUTPUT}"
+        {
+          echo "ARM_USE_OIDC=true"
+          echo "ARM_CLIENT_ID=${ARM_CLIENT_ID}"
+          echo "ARM_TENANT_ID=${ARM_TENANT_ID}"
+          echo "ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID}"
+          echo "TF_IN_AUTOMATION=1"
+          echo "TF_INPUT=0"
+        } >>"${GITHUB_ENV}"
+
+        # Parties from the scenarios this pilot hosts (identical for every phase and run).
+        IFS=',' read -ra scenarios <<<"${PILOT_SCENARIOS:?set the PILOT_SCENARIOS variable}"
+        python deploy/scripts/pilot-parties.py "${scenarios[@]}" >"${RUNNER_TEMP}/parties.json"
+        runner_ip="$(curl -sSf https://api.ipify.org)"
+        jq -n \
+          --arg sub "${ARM_SUBSCRIPTION_ID}" --arg tenant "${ARM_TENANT_ID}" \
+          --arg location "${AZURE_LOCATION:?}" --arg short "${AZURE_REGION_SHORT:?}" \
+          --arg prefix "${PILOT_NAME_PREFIX:?}" --arg group "${AKS_ADMIN_GROUP_OBJECT_ID:?}" \
+          --arg deployer "${DEPLOYER_OBJECT_ID:?}" --arg ip "${runner_ip}/32" \
+          --slurpfile parties "${RUNNER_TEMP}/parties.json" \
+          '{subscription_id: $sub, tenant_id: $tenant, location: $location, region_short: $short,
+            name_prefix: $prefix, parties: $parties[0].parties,
+            aks_admin_group_object_ids: [$group], job_submitter_object_ids: [$deployer],
+            registry_pusher_object_ids: [$deployer], operator_ip_ranges: [$ip]}' \
+          >"${pilot}/1-platform/pilot.auto.tfvars.json"
+        jq '{parties: .parties, job_submitter_object_ids: .job_submitter_object_ids, operator_object_ids: .job_submitter_object_ids}' \
+          "${pilot}/1-platform/pilot.auto.tfvars.json" >"${pilot}/2-workloads/pilot.auto.tfvars.json"
+        cp "${RUNNER_TEMP}/parties.json" "${RUNNER_TEMP}/pilot-parties.json"
+
+        # Local checkouts of the service stacks instead of the pinned git sources.
+        DEPA_KMS_AZURE_DIR="${GITHUB_WORKSPACE}/.deps/depa-training-kms-azure" \
+        DEPA_CONTRACT_SERVICE_DIR="${GITHUB_WORKSPACE}/.deps/contract-service" \
+          envsubst '${DEPA_KMS_AZURE_DIR} ${DEPA_CONTRACT_SERVICE_DIR}' \
+          <"${pilot}/1-platform/local_override.tf.tpl" >"${pilot}/1-platform/local_override.tf"
+
+        for phase in 1-platform 2-workloads; do
+          printf 'terraform {\n  backend "azurerm" {}\n}\n' >"${pilot}/${phase}/backend_override.tf"
+          terraform -chdir="${pilot}/${phase}" init -no-color \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP:?}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT:?}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=depa-training/${PILOT_ENV}/${phase}.tfstate" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="use_oidc=true"
+        done

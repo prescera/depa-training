@@ -1,0 +1,58 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/terraform/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TERRAFORM_VERSION: "1.16.5"
+
+jobs:
+  validate:
+    name: fmt + validate (${{ matrix.scope }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [modules/aws, modules/azure, modules/gcp, environments]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # environments/dc composes the DC service stacks; validate against their main branches.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.scope == 'environments'
+        with:
+          repository: ${{ github.repository_owner }}/depa-training-kms-azure
+          path: .deps/depa-training-kms-azure
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.scope == 'environments'
+        with:
+          repository: ${{ github.repository_owner }}/contract-service
+          path: .deps/contract-service
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: Validate
+        working-directory: deploy/terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/tf-plugin-cache
+          DEPA_KMS_AZURE_DIR: ${{ matrix.scope == 'environments' && format('{0}/.deps/depa-training-kms-azure', github.workspace) || '' }}
+          DEPA_CONTRACT_SERVICE_DIR: ${{ matrix.scope == 'environments' && format('{0}/.deps/contract-service', github.workspace) || '' }}
+        run: make validate ONLY=${{ matrix.scope }}

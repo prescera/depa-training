@@ -1,0 +1,109 @@
+name: Python (sdk, trainers, federation broker)
+
+on:
+  pull_request:
+    paths: ["sdk/**", "trainers/**", "deploy/terraform/modules/azure/federation-broker/function/**", ".github/workflows/python.yml"]
+  push:
+    branches: [main]
+    paths: ["sdk/**", "trainers/**", "deploy/terraform/modules/azure/federation-broker/function/**", ".github/workflows/python.yml"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  sdk:
+    name: sdk/python (ruff, mypy, pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        # The depa-train core is imported by the agent for recipe validation.
+        run: python -m pip install -e "../../trainers" -e ".[dev]"
+      - name: Ruff
+        run: ruff check src tests
+      - name: Mypy
+        run: mypy
+      - name: Pytest
+        run: pytest
+
+  trainers:
+    name: trainers (${{ matrix.family }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [classic, torch, llm]
+    defaults:
+      run:
+        working-directory: trainers
+    env:
+      # dp-xgboost (classic) builds from its hashed sdist with the runner's cmake/g++.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install the locked ${{ matrix.family }} stack (same lock as the CCR image)
+        run: |
+          python -m pip install --require-hashes -r "requirements/${{ matrix.family }}.txt"
+          python -m pip install --no-deps -e .
+          python -m pip install "pytest>=8,<10" "ruff==0.17.6"
+      - name: Ruff
+        if: matrix.family == 'classic'
+        run: ruff check src tests
+      - name: Pytest
+        run: pytest
+
+  federation-broker:
+    name: azure federation broker (ruff, mypy, pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: deploy/terraform/modules/azure/federation-broker/function
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          python -m pip install --require-hashes -r requirements.txt
+          python -m pip install -r requirements-test.txt "ruff==0.17.6" "mypy>=1.11,<3"
+      - name: Ruff
+        run: ruff check --select E,F,W,I,B,UP,S,SIM,RUF --ignore S101 --line-length 120 .
+      - name: Mypy
+        run: mypy --ignore-missing-imports broker function_app.py
+      - name: Pytest
+        run: pytest -p no:cacheprovider tests
+      - name: Package builds
+        run: ../build-package.sh "${RUNNER_TEMP}/broker"

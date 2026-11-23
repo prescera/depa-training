@@ -1,0 +1,150 @@
+name: Pilot · run scenario
+
+# End to end on the deployed pilot: render depa-env.yaml from the Terraform outputs, restore the
+# party keys, run the (idempotent) DC setup, then deploy the scenario (preprocess, encrypt and
+# upload datasets, publish descriptors and policies, propose/sign the contract, submit the clean
+# room, collect outputs and receipts).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment of the pilot
+        type: environment
+        required: true
+      scenario:
+        description: Scenario (scenarios/<name>); must be listed in PILOT_SCENARIOS
+        type: choice
+        options: [mnist, credit-risk, cifar10, covid, brats, llm-sft]
+        default: mnist
+      platform:
+        description: Clean-room platform
+        type: choice
+        options: [aks, gcp]
+        default: aks
+
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      scenario:
+        type: string
+        default: mnist
+      platform:
+        type: string
+        default: aks
+permissions: {}
+
+concurrency:
+  group: pilot-${{ inputs.environment }}-scenario
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ inputs.scenario }} on ${{ inputs.platform }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read # download the latest ccr-releases artifact
+    env:
+      PILOT_SCENARIOS: ${{ vars.PILOT_SCENARIOS }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      AKS_ADMIN_GROUP_OBJECT_ID: ${{ vars.AKS_ADMIN_GROUP_OBJECT_ID }}
+      DEPLOYER_OBJECT_ID: ${{ vars.DEPLOYER_OBJECT_ID }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+      GCP_PROJECT: ${{ inputs.platform == 'gcp' && vars.GCP_PROJECT || '' }}
+      GCP_ZONE: ${{ vars.GCP_ZONE }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      GCP_SUBNET: ${{ vars.GCP_SUBNET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check inputs (scenario hosted by this pilot, platform)
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          [[ "${PLATFORM}" == aks || "${PLATFORM}" == gcp ]] || { echo "::error::platform must be aks or gcp"; exit 1; }
+          [[ ",${PILOT_SCENARIOS}," == *",${SCENARIO},"* ]] \
+            || { echo "::error::${SCENARIO} is not in PILOT_SCENARIOS (${PILOT_SCENARIOS}); add it and re-run both infra phases"; exit 1; }
+      - id: pilot
+        uses: ./.github/actions/pilot-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        if: inputs.platform == 'gcp'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SUBMITTER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        if: inputs.platform == 'gcp'
+      - name: Tooling (depa CLI hash-locked, kubelogin)
+        run: |
+          python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
+          python -m pip install --no-deps ./trainers ./sdk/python
+          sudo az aks install-cli --only-show-errors >/dev/null
+      # Same run first (demo.yml builds the releases earlier in this run), else the latest
+      # artifact of a standalone "Pilot · build CCR releases" run.
+      - id: releases_this_run
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ccr-releases-${{ inputs.environment }}
+          path: ${{ runner.temp }}/releases
+      - name: Release manifests (latest "Pilot · build CCR releases" artifact)
+        if: steps.releases_this_run.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PILOT_ENV: ${{ inputs.environment }}
+        run: |
+          name="ccr-releases-${PILOT_ENV}"
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')"
+          [[ -n "${run_id}" ]] || { echo "::error::no ${name} artifact; run 'Pilot · build CCR releases' first"; exit 1; }
+          gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" --name "${name}" --dir "${RUNNER_TEMP}/releases"
+      - name: Render depa-env.yaml and restore party keys
+        env:
+          DEPA_PARTY_KEYS: ${{ secrets.DEPA_PARTY_KEYS }}
+        run: |
+          deploy/scripts/party-keys.sh unpack "${RUNNER_TEMP}/keys"
+          deploy/scripts/render-env.sh --parties-json "${RUNNER_TEMP}/pilot-parties.json" \
+            --keys-dir "${RUNNER_TEMP}/keys" --releases-dir "${RUNNER_TEMP}/releases" --out "${RUNNER_TEMP}/env/depa-env.yaml"
+      - name: DC setup (idempotent)
+        run: depa dc setup --env "${RUNNER_TEMP}/env/depa-env.yaml"
+      - name: Deploy scenario
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/artifacts/receipts"
+          # Operator token for encrypted uploads (TDP accounts) and output download (TDC account).
+          DEPA_STORAGE_TOKEN="$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)"
+          export DEPA_STORAGE_TOKEN
+          set -o pipefail
+          depa --json scenario deploy "${SCENARIO}" --env "${RUNNER_TEMP}/env/depa-env.yaml" \
+            --platform "${PLATFORM}" --work-dir "${RUNNER_TEMP}/work" \
+            --storage-token-env DEPA_STORAGE_TOKEN --output-token-env DEPA_STORAGE_TOKEN \
+            >"${RUNNER_TEMP}/artifacts/run-summary.json"
+          # Only receipts and the summary leave the runner: the work dir also holds plaintext
+          # inputs and the decrypted model.
+          find "${RUNNER_TEMP}/work" -type f -iname '*receipt*' -exec cp -t "${RUNNER_TEMP}/artifacts/receipts" {} +
+          { echo "### ${SCENARIO} on ${PLATFORM}"; echo '```json'; head -c 60000 "${RUNNER_TEMP}/artifacts/run-summary.json"; echo; echo '```'; } \
+            >>"${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: scenario-${{ inputs.scenario }}-${{ inputs.platform }}-${{ github.run_id }}
+          # Receipts and the run summary only; never keys, plaintext data or the decrypted model.
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: warn

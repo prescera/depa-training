@@ -1,0 +1,80 @@
+name: Pilot · deploy services
+
+# Builds the KMS and Contract Service bundles, deploys them to their ACL instances and runs the
+# one-time DC setup (bootstrap, members, governance settings). Run after 1-platform.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment of the pilot
+        type: environment
+        required: true
+
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+permissions: {}
+
+concurrency:
+  group: pilot-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PILOT_SCENARIOS: ${{ vars.PILOT_SCENARIOS }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      AKS_ADMIN_GROUP_OBJECT_ID: ${{ vars.AKS_ADMIN_GROUP_OBJECT_ID }}
+      DEPLOYER_OBJECT_ID: ${{ vars.DEPLOYER_OBJECT_ID }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: pilot
+        uses: ./.github/actions/pilot-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Deploy bundles to ACL
+        run: |
+          terraform -chdir="${{ steps.pilot.outputs.pilot-dir }}/1-platform" output -json pilot_platform >"${RUNNER_TEMP}/platform.json"
+          deploy/scripts/deploy-services.sh --platform-json "${RUNNER_TEMP}/platform.json" \
+            --kms-repo .deps/depa-training-kms-azure --cs-repo .deps/contract-service \
+            --out-dir "${RUNNER_TEMP}/services"
+          { echo '### Deployed bundles'; echo '```json'; cat "${RUNNER_TEMP}/services/services.json"; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - name: Install the depa CLI (hash-locked)
+        run: |
+          python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
+          python -m pip install --no-deps ./trainers ./sdk/python
+      - name: DC setup (idempotent)
+        env:
+          DEPA_PARTY_KEYS: ${{ secrets.DEPA_PARTY_KEYS }}
+        run: |
+          deploy/scripts/party-keys.sh unpack "${RUNNER_TEMP}/keys"
+          mkdir -p "${RUNNER_TEMP}/releases"
+          deploy/scripts/render-env.sh --parties-json "${RUNNER_TEMP}/pilot-parties.json" \
+            --keys-dir "${RUNNER_TEMP}/keys" --releases-dir "${RUNNER_TEMP}/releases" --out "${RUNNER_TEMP}/env/depa-env.yaml"
+          depa dc setup --env "${RUNNER_TEMP}/env/depa-env.yaml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: services-${{ inputs.environment }}
+          path: ${{ runner.temp }}/services/
+          if-no-files-found: error

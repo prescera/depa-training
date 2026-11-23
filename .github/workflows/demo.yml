@@ -1,0 +1,119 @@
+name: Pilot · end-to-end demo
+
+# One click: deploy the Azure pilot, run a scenario, optionally tear everything down.
+#   1-platform -> services (+ DC setup) -> 2-workloads ┐
+#   1-platform -> CCR releases ────────────────────────┴-> scenario -> (teardown)
+# Each stage is the standalone workflow, called as a reusable workflow; every job runs in the
+# chosen GitHub environment, so its protection rules (reviewers) gate the run.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment of the pilot
+        type: environment
+        required: true
+      scenario:
+        description: Scenario (must be listed in PILOT_SCENARIOS)
+        type: choice
+        options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
+        default: credit-risk
+      platform:
+        description: Clean-room platform
+        type: choice
+        options: [aks, gcp]
+        default: aks
+      teardown:
+        description: Destroy the pilot afterwards (also on failure)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      scenario:
+        type: string
+        default: credit-risk
+      platform:
+        type: string
+        default: aks
+      teardown:
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Distinct from the stages' own groups (pilot-<env>, …) so they can run inside this run.
+concurrency:
+  group: demo-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    uses: ./.github/workflows/deploy-infra.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+      phase: 1-platform
+      apply: true
+    secrets: inherit
+
+  services:
+    needs: platform
+    uses: ./.github/workflows/deploy-services.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  workloads:
+    needs: services
+    uses: ./.github/workflows/deploy-infra.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+      phase: 2-workloads
+      apply: true
+    secrets: inherit
+
+  releases:
+    needs: platform
+    uses: ./.github/workflows/build-releases.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  scenario:
+    needs: [workloads, releases]
+    uses: ./.github/workflows/run-scenario.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      scenario: ${{ inputs.scenario }}
+      platform: ${{ inputs.platform }}
+    secrets: inherit
+
+  teardown:
+    needs: [platform, services, workloads, releases, scenario]
+    if: always() && inputs.teardown
+    uses: ./.github/workflows/teardown.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+      confirm: ${{ inputs.environment }}
+    secrets: inherit
