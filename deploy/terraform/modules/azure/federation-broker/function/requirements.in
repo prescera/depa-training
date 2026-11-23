@@ -1,0 +1,5 @@
+# Runtime dependencies of the broker (packaged into .python_packages by build-package.sh).
+# Compile: uv pip compile requirements.in -o requirements.txt -p 3.12 \
+#   --python-platform x86_64-manylinux_2_28 --generate-hashes
+azure-functions
+cryptography

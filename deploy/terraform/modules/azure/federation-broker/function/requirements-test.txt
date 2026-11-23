@@ -1,0 +1,3 @@
+# Test-only (not packaged): pytest, plus azure-storage-blob as the reference SAS implementation.
+pytest>=8,<10
+azure-storage-blob==12.31.1

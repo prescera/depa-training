@@ -1,0 +1,19 @@
+region          = "ap-south-1"
+party_id        = "bank-a"
+name_prefix     = "bank-a-prod"
+bucket_name     = "bank-a-depa-datasets-prod"
+oidc_issuer_url = "https://kms.dc.example.org/app/oidc"
+
+datasets = {
+  "bank-a/credit-applications" = {}
+  "bank-a/bureau-scores"       = {}
+}
+
+# Set when another stack in this AWS account already created the provider:
+# create_oidc_provider       = false
+# existing_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/kms.dc.example.org/app/oidc"
+
+tags = {
+  owner       = "bank-a-data-platform"
+  environment = "prod"
+}

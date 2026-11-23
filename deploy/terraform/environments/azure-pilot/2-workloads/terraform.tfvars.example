@@ -1,0 +1,16 @@
+# `platform` comes from phase 1:
+#   terraform -chdir=../1-platform output -json pilot_platform | jq '{platform: .}' > platform.auto.tfvars.json
+# `parties` and `job_submitter_object_ids` are the same values as in 1-platform.
+# kms_jwks_json:        deploy/scripts/fetch-kms-jwks.sh (after deploy-services.sh + DC setup)
+# broker_package_path:  ../../../modules/azure/federation-broker/build-package.sh
+
+parties = [
+  { party_id = "dc-member-1", roles = ["dc-member"] },
+  { party_id = "bank-a", roles = ["tdp"], datasets = { "bank-a/credit-applications" = {} } },
+  { party_id = "bureau-b", roles = ["tdp"], datasets = { "bureau-b/bureau-scores" = {} } },
+  { party_id = "fintech-x", roles = ["tdc"], compute = true },
+]
+job_submitter_object_ids = ["33333333-3333-3333-3333-333333333333"]
+broker_package_path      = "../../../modules/azure/federation-broker/dist/federation-broker-<hash>.zip"
+kms_jwks_json            = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"kid\":\"<kid>\",\"x\":\"<x>\",\"y\":\"<y>\"}]}"
+operator_object_ids      = ["33333333-3333-3333-3333-333333333333"]

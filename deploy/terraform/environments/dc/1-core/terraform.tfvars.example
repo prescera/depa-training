@@ -1,0 +1,23 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+
+environment  = "prod"
+region       = "centralindia"
+region_short = "cin"
+
+# Egress IP(s) of the machine/runner applying Terraform.
+key_vault_allowed_ip_ranges = ["203.0.113.10"]
+
+# DC operator identities administering both ledgers (object IDs). Empty = caller.
+ledger_administrator_principal_ids = []
+
+kms_gateway_hostname         = "kms.dc.example.org"
+kms_ops_github_oidc_subjects = ["repo:prescera/depa-training-kms-azure:environment:dc-prod"]
+
+cs_enable_gateway = false
+# cs_gateway_hostname         = "cs.dc.example.org"
+# cs_ops_github_oidc_subjects = ["repo:prescera/contract-service:environment:dc-prod"]
+
+tags = {
+  owner = "dc-operations"
+}

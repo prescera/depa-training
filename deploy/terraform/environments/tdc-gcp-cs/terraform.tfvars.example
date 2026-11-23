@@ -1,0 +1,28 @@
+project_id  = "fintechx-ccr-prod"
+region      = "asia-south1"
+party_id    = "fintech-x"
+name_prefix = "fintechx-prod"
+
+# DC endpoints (KMS/CS ACL ledger IPs and/or Application Gateway IPs) and any cross-cloud
+# storage/STS ranges for the contracted datasets. Google APIs are allowed separately.
+egress_https_destination_ranges = ["198.51.100.10/32", "198.51.100.11/32"]
+
+job_submitter_members = ["serviceAccount:ccr-submitter@fintechx-ci.iam.gserviceaccount.com"]
+
+oidc_issuer_url        = "https://kms.dc.example.org/app/oidc"
+output_bucket_name     = "fintechx-prod-depa-outputs"
+output_bucket_location = "ASIA-SOUTH1"
+
+# Optional: a Terraform-managed run (normally runs are submitted with the depa CLI).
+# ccr_runs = {
+#   credit-risk = {
+#     image_reference          = "ghcr.io/prescera/depa-ccr-classic@sha256:<64 hex from ccr/releases/...-gcp.json>"
+#     max_run_duration_seconds = 14400
+#     env = {
+#       DEPA_CONTRACT_ID   = "6f1c2c1e-3a4b-4c5d-8e9f-0a1b2c3d4e5f"
+#       DEPA_RECIPE_DIGEST = "sha256:<64 hex>"
+#       DEPA_CS_URL        = "https://depa-cs.confidential-ledger.azure.com"
+#       DEPA_KMS_URL       = "https://depa-kms.confidential-ledger.azure.com"
+#     }
+#   }
+# }

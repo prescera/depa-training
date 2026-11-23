@@ -1,0 +1,14 @@
+project_id      = "bank-a-depa-data-prod"
+region          = "asia-south1"
+party_id        = "bank-a"
+name_prefix     = "bank-a-prod"
+bucket_name     = "bank-a-depa-datasets-prod"
+oidc_issuer_url = "https://kms.dc.example.org/app/oidc"
+
+datasets = {
+  "bank-a/credit-applications" = {}
+}
+
+labels = {
+  environment = "prod"
+}

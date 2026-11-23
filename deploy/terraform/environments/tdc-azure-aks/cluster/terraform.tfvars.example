@@ -1,0 +1,12 @@
+# Values come from `terraform -chdir=../infra output`.
+subscription_id         = "00000000-0000-0000-0000-000000000000"
+cluster_name            = "fintechx-prod-cin-ccr-aks"
+resource_group_name     = "fintechx-prod-cin-ccr-rg"
+aci_resource_group_name = "fintechx-prod-cin-ccr-aci-rg"
+aci_subnet_name         = "cg"
+
+job_submitters = [
+  { object_id = "22222222-2222-2222-2222-222222222222", kind = "User" },
+]
+max_concurrent_jobs = 4
+custom_tags         = { party = "fintech-x" }

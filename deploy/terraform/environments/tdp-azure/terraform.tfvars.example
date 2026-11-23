@@ -1,0 +1,27 @@
+subscription_id      = "00000000-0000-0000-0000-000000000000"
+location             = "centralindia"
+resource_group_name  = "bank-a-depa-data-prod-rg"
+party_id             = "bank-a"
+name_prefix          = "bank-a-prod"
+storage_account_name = "bankadepadataprod"
+oidc_issuer_url      = "https://kms.dc.example.org/app/oidc"
+
+datasets = {
+  "bank-a/credit-applications" = {}
+  "bank-a/bureau-scores"       = { container_name = "bureau" }
+}
+
+# allowed_ip_rules = ["20.0.0.0/28", "203.0.113.10"]
+
+tags = {
+  environment = "prod"
+}
+
+# Federation broker (spec §10.1; default while the KMS signs ES256 only).
+# Build: ../../modules/azure/federation-broker/build-package.sh  -> prints the zip path
+broker_package_path              = "../../modules/azure/federation-broker/dist/federation-broker-<hash>.zip"
+broker_host_storage_account_name = "bankabrokerprod"
+# Pinned KMS JWKS: curl -s https://kms.dc.example.org/app/oidc/jwks
+kms_jwks_json = <<-EOT
+  {"keys":[{"kty":"EC","crv":"P-256","kid":"<kid>","use":"sig","alg":"ES256","x":"<x>","y":"<y>"}]}
+EOT
