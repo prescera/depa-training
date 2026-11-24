@@ -30,13 +30,17 @@ for p in Microsoft.ConfidentialLedger Microsoft.ContainerService Microsoft.Conta
 done
 
 # 2. Deployment identity: app registration + service principal, trusted for this repo's
-#    GitHub environment only (subject repo:<owner>/<repo>:environment:<env>)
+#    GitHub environment only. The subject must match exactly what GitHub issues: repositories
+#    with immutable subjects use repo:<owner>@<owner_id>/<repo>@<repo_id>, so read the prefix
+#    from GitHub instead of assuming repo:<owner>/<repo>.
+SUB_PREFIX=$(gh api "repos/$REPO/actions/oidc/customization/sub" --jq ".sub_claim_prefix // empty")
+SUB_PREFIX=${SUB_PREFIX:-repo:$REPO}
 APP_ID=$(az ad app create --display-name "depa-training-v2-$ENV" --query appId -o tsv)
 SP_OID=$(az ad sp create --id "$APP_ID" --query id -o tsv)
 az ad app federated-credential create --id "$APP_ID" --parameters "{
   \"name\": \"github-$ENV\",
   \"issuer\": \"https://token.actions.githubusercontent.com\",
-  \"subject\": \"repo:$REPO:environment:$ENV\",
+  \"subject\": \"$SUB_PREFIX:environment:$ENV\",
   \"audiences\": [\"api://AzureADTokenExchange\"]
 }"
 
@@ -160,6 +164,11 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys
 ```
 
 ## Troubleshooting
+
+- **`AADSTS700213: No matching federated identity record found`**: the federated credential's
+  subject does not match the token. Compare it with the subject in the error message (or
+  `gh api repos/$REPO/actions/oidc/customization/sub`) and add a credential with that exact
+  subject plus `:environment:$ENV`.
 
 - **`DEPA_PARTY_KEYS is empty`** in *deploy services* or *run scenario*: the secret was set from
   an empty value (e.g. an earlier `gh secret set --body "$(…)"` whose command failed). Re-publish
