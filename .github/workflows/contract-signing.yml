@@ -90,9 +90,14 @@ jobs:
           ENV_FILE: ${{ steps.cli.outputs.env-file }}
         run: |
           mkdir -p "${RUNNER_TEMP}/work" "${RUNNER_TEMP}/artifacts"
+          # Party-side storage access (verifying dataset manifests, output locations), as in the
+          # other stages. Read from the environment, never from argv.
+          DEPA_STORAGE_TOKEN="$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)"
+          export DEPA_STORAGE_TOKEN
           set -o pipefail
           depa --json scenario deploy "${SCENARIO}" --env "${ENV_FILE}" --platform "${PLATFORM}" \
             --work-dir "${RUNNER_TEMP}/work" --stage contract \
+            --storage-token-env DEPA_STORAGE_TOKEN --output-token-env DEPA_STORAGE_TOKEN \
             >"${RUNNER_TEMP}/artifacts/contract.json"
           { echo "### Contract Signing"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/contract.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
