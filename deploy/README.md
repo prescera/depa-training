@@ -16,7 +16,7 @@ No client secret is ever created: GitHub Actions authenticates with a federated 
 SUB=<subscription-id>
 REPO=prescera/depa-training          # this repository; the service repos are checked out from the same owner
 ENV=pilot                             # GitHub environment name (also the state key prefix)
-LOC=eastus                            # pilot default; production India: centralindia (checked by deploy-infra preflight)
+LOC=centralindia                      # offers ACL, VN2 confidential pods and Flex Consumption (checked by deploy-infra preflight)
 STATE_SA=<globally-unique-name>       # Terraform state storage account (3-24 lowercase alphanumerics)
 
 az login && az account set --subscription "$SUB"
@@ -82,7 +82,7 @@ s DEPLOYER_OBJECT_ID "$SP_OID"
 s TFSTATE_RESOURCE_GROUP depa-training-v2-tfstate-rg
 s TFSTATE_STORAGE_ACCOUNT "$STATE_SA"
 v AZURE_LOCATION "$LOC"
-v AZURE_REGION_SHORT eus                     # 2-6 chars, used in ledger names (cin for centralindia)
+v AZURE_REGION_SHORT cin                     # 2-6 chars, used in ledger names
 v PILOT_NAME_PREFIX pilot1                   # 2-8 chars
 v DEPA_SERVICES_REF main                     # ref of <owner>/depa-training-kms-azure and <owner>/contract-service
 # Optional repository variable for PRs labelled run-azure-demo (default: pilot):
@@ -177,7 +177,7 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys
 - **`<NAME> is empty: set the environment secret/variable`**: an Azure identifier secret or a
   region/naming variable is missing from the GitHub environment (step 6).
 - **Region preflight fails**: the region lacks ACL, Flex Consumption or virtual nodes v2
-  confidential pods; pick another (`eastus`, `centralindia`, …) and update the variables.
+  confidential pods; it lists the regions that offer all three. Pick one and update the variables.
 
 ## Assumptions and limits
 

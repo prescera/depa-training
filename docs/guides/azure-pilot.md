@@ -31,11 +31,11 @@ The pilot always has the same parties: `dc-member-1`, `tdc` (also a provider: it
 llm-sft base model) and `tdp-1` … `tdp-4`. Every scenario's own provider ids are mapped onto
 these slots, so one deployment runs any scenario.
 
-The pilot default region is **`eastus`** (short code `eus`); production deployments in India
-use `centralindia` (`cin`). The region must offer Azure Confidential Ledger, Functions Flex
-Consumption and AKS virtual nodes v2 with confidential pods; **Pilot · deploy infrastructure**
-checks all three before it plans anything (`deploy/scripts/check-region.sh`). Add required
-reviewers to the environment to get an approval gate.
+The default region is **`centralindia`** (short code `cin`). The region must offer Azure
+Confidential Ledger, Functions Flex Consumption and AKS virtual nodes v2 with confidential pods.
+**Pilot · deploy infrastructure** checks all three before it plans anything
+(`deploy/scripts/check-region.sh`), and when a region fails it lists the regions that offer all
+three. Add required reviewers to the environment to get an approval gate.
 
 ## 2. Deploy (Actions tab)
 

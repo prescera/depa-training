@@ -36,4 +36,16 @@ mapfile -t flex < <(az functionapp list-flexconsumption-locations --query "[].na
 check "Functions Flex Consumption" "${flex[@]}"
 
 check "AKS virtual nodes v2 confidential pods" "${VN2_CONFIDENTIAL_REGIONS[@]}"
+
+if [[ "${fail}" -ne 0 ]]; then
+  # Regions that pass all three checks, so the operator can pick one.
+  mapfile -t candidates < <(comm -12 \
+    <(comm -12 <(printf '%s\n' "${acl[@]}" | norm | sort -u) <(printf '%s\n' "${flex[@]}" | norm | sort -u)) \
+    <(printf '%s\n' "${VN2_CONFIDENTIAL_REGIONS[@]}" | norm | sort -u))
+  if [[ "${#candidates[@]}" -gt 0 ]]; then
+    echo "Regions offering all three: ${candidates[*]}" >&2
+  else
+    echo "No region offers all three for this subscription." >&2
+  fi
+fi
 exit "${fail}"
