@@ -100,3 +100,13 @@ def test_overflow_is_a_configuration_error(tmp_path: Path) -> None:
 def test_native_ids_present_means_no_mapping(tmp_path: Path) -> None:
     env = fixed_env(tmp_path)
     assert compute_party_map(["tdp-2", "tdc"], "tdc", env) == {"tdc": "tdc", "tdp-2": "tdp-2"}
+
+
+def test_parse_stages() -> None:
+    from depa.deployment import parse_stages
+
+    assert parse_stages([]) is None and parse_stages(["all"]) is None
+    assert parse_stages(["keys,data", "model"]) == frozenset({"keys", "data", "model"})
+    with pytest.raises(ConfigError) as exc:
+        parse_stages(["keys,bogus"])
+    assert exc.value.exit_code == 2

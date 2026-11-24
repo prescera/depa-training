@@ -10,6 +10,7 @@ not selected with ``--parties``) are skipped and reported.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -28,7 +29,7 @@ from depa.contract.authoring import DatasetTemplate, build_contract, load_datase
 from depa.contract.recipe import load_recipe
 from depa.contract.verify import verify_contract
 from depa.contract.yamlio import load_template
-from depa.core.encoding import canonicalize, digest, dumps_pretty
+from depa.core.encoding import canonicalize, digest, dumps_pretty, loads_object
 from depa.core.ids import dataset_owner
 from depa.core.timeutil import parse_rfc3339
 from depa.deploy import Runner, aks, cancellable_runner, gcp, subprocess_runner
@@ -55,6 +56,7 @@ from depa.workflows import (
     upload_directory,
 )
 
+STATE_FILE = "state.json"
 PLATFORM_IDS = {"aks": "aci-snp", "gcp": "gcp-cs-tdx", "local": "virtual"}
 Log = Callable[[str], object]
 
@@ -194,6 +196,7 @@ class DeployOptions:
     trainer_cmd: str | None = None  # local only (dev)
     work_dir: Path | None = None
     cancel: threading.Event | None = None  # set to stop the deployment promptly (DeployCancelled)
+    stages: frozenset[str] | None = None  # subset of STAGES; None = all (one-shot behaviour)
 
 
 def _env_tdc(env: DepaEnv) -> str:
@@ -266,6 +269,24 @@ def compute_party_map(native_owners: Iterable[str], native_tdc: str, env: DepaEn
     return {native_tdc: tdc, **dict(zip(others, slots, strict=False))}
 
 
+STAGES = ("keys", "data", "contract", "train", "model")
+
+
+class StageError(ConfigError):
+    """A stage's prerequisite has not run (exit 2)."""
+
+    code = "stage_prerequisite"
+
+
+def parse_stages(values: Iterable[str]) -> frozenset[str] | None:
+    """``--stage`` values (repeatable or comma lists) -> a stage set; ``None`` means all."""
+    names = {v.strip() for value in values for v in value.split(",") if v.strip()}
+    unknown = names - {*STAGES, "all"}
+    if unknown:
+        raise ConfigError(f"unknown stage(s) {sorted(unknown)}; choose from {', '.join(STAGES)}, all", code="bad_stage")
+    return None if not names or "all" in names else frozenset(names)
+
+
 class _Deployer:
     def __init__(self, scenario: Path, env: DepaEnv, profile: Profile, opts: DeployOptions, log: Log) -> None:
         self.scenario, self.env, self.profile, self.opts, self.log = scenario, env, profile, opts, log
@@ -284,6 +305,8 @@ class _Deployer:
         self.version_suffix = f".{scenario.name}" if self.mapped else ""
         self.template_env = {**os.environ, "DEPA_TDC": self.tdc, "DEPA_KMS_URL": self.kms.base_url}
         self.work = opts.work_dir or Path(tempfile.mkdtemp(prefix=f"depa-{scenario.name}-"))
+        self.state_path = self.work / STATE_FILE
+        self.state = self.load_state()
         self.summary: dict[str, Any] = {
             "scenario": scenario.name,
             "platform": self.platform,
@@ -293,6 +316,53 @@ class _Deployer:
         }
         if self.mapped:
             log(f"party map {self.party_map} (dataset versions suffixed {self.version_suffix!r})")
+
+    def load_state(self) -> dict[str, Any]:
+        """Resume state from ``--work-dir/state.json`` (only if it belongs to this scenario/platform)."""
+        if not self.state_path.exists():
+            return {}
+        state = loads_object(self.state_path.read_bytes())
+        if state.get("scenario") != self.scenario.name or state.get("platform") != self.platform:
+            return {}
+        return state
+
+    def save_state(self) -> None:
+        self.state.update(scenario=self.scenario.name, platform=self.platform, party_map=self.party_map)
+        self.work.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(dumps_pretty(self.state))
+
+    def resolve_contract(self) -> dict[str, Any]:
+        """The active contract: from state, else an identical usable contract in the CS."""
+        contract_id = self.state.get("contract_id")
+        if contract_id:
+            record = self.cs.get_contract(str(contract_id))
+        else:
+            found = self.find_reusable(self.candidate())
+            if found is None:
+                raise StageError("no contract for this scenario: run --stage contract first")
+            record = self.cs.get_contract(str(found["contract_id"]))
+        if record.get("state") != "active":
+            raise StageError(
+                f"contract {record['contract']['contract_id']} is {record.get('state')}, not active: "
+                "run --stage contract (all signatures) first"
+            )
+        self.state["contract_id"] = record["contract"]["contract_id"]
+        return dict(record["contract"])
+
+    def resolve_run(self, contract: Mapping[str, Any]) -> dict[str, Any]:
+        """The completed run: from state, else the latest completed run of the contract."""
+        run_id = self.state.get("run_id")
+        if run_id:
+            run = self.cs.get_run(str(run_id))
+        else:
+            done = [r for r in self.cs.list_runs(str(contract["contract_id"])) if r.get("state") == "completed"]
+            if not done:
+                raise StageError("no completed run for this contract: run --stage train first")
+            run = max(done, key=lambda r: r.get("terminal_at") or r.get("authorized_at") or 0)
+        if run.get("state") != "completed":
+            raise StageError(f"run {run.get('run_id')} is {run.get('state')}: run --stage train first")
+        self.state["run_id"] = run["run_id"]
+        return dict(run)
 
     def acts_for(self, party_id: str) -> bool:
         selected = self.opts.parties is None or party_id in self.opts.parties
@@ -376,12 +446,12 @@ class _Deployer:
                 )
             self.step("prepare", argv=[Path(argv[0]).name, *argv[1:]])
 
-    def publish_datasets(self, templates: Sequence[DatasetTemplate]) -> None:
-        pending = []
+    def stage_keys(self, templates: Sequence[DatasetTemplate]) -> None:
+        """TDPs: dataset key in the KMS (created once) and the release policy (set when changed)."""
         for t in templates:
             owner = dataset_owner(t.dataset_id)
             if not self.acts_for(owner):
-                self.summary["skipped"].append(f"{t.dataset_id}: steps for {owner} (keys not held/selected)")
+                self.summary["skipped"].append(f"{t.dataset_id}: keys for {owner} (keys not held/selected)")
                 continue
             signer = self.profile.signer(owner)
             try:
@@ -394,6 +464,15 @@ class _Deployer:
                 if any(current.get(k) != v for k, v in t.policy.items()):
                     self.kms.set_policy(signer, t.dataset_id, t.policy)
                     self.step("dataset.policy-set", dataset_id=t.dataset_id)
+
+    def stage_data(self, templates: Sequence[DatasetTemplate]) -> None:
+        """TDPs: prepare (if needed), encrypt, upload and publish versions not yet in the catalog."""
+        pending = []
+        for t in templates:
+            owner = dataset_owner(t.dataset_id)
+            if not self.acts_for(owner):
+                self.summary["skipped"].append(f"{t.dataset_id}: data for {owner} (keys not held/selected)")
+                continue
             try:
                 published = self.cs.get_dataset_descriptor(t.dataset_id, t.version)
             except NotFoundError:
@@ -405,11 +484,21 @@ class _Deployer:
                     f"({published.get('name')!r}); refusing to reuse it",
                     code="dataset_version_collision",
                 )
+            self.state.setdefault("published", {})[t.dataset_id] = t.version
+        for t in pending:  # prerequisite: stage keys (key and policy exist)
+            try:
+                record = self.kms.get_dataset(t.dataset_id)
+            except NotFoundError as exc:
+                raise StageError(f"{t.dataset_id} has no KMS key: run --stage keys first") from exc
+            if t.policy is not None and record.policy is None:
+                raise StageError(f"{t.dataset_id} has no release policy: run --stage keys first")
         if pending:
             self.prepare_data(pending)
         for t in pending:
             signer = self.profile.signer(dataset_owner(t.dataset_id))
             out = self.work / "encrypted" / t.dataset_id / t.version
+            if out.exists():  # left over by an interrupted run: re-encrypt from scratch
+                shutil.rmtree(out)
             manifest = encrypt_dataset(t, kms=self.kms, signer=signer, out_dir=out)
             self.step("dataset.encrypt", dataset_id=t.dataset_id, manifest_digest=manifest.digest)
             upload_directory(
@@ -418,6 +507,7 @@ class _Deployer:
             self.step("dataset.upload", dataset_id=t.dataset_id, location=t.descriptor["location"]["uri"])
             publish_dataset(self.cs, signer, t, out)
             self.step("dataset.publish", dataset_id=t.dataset_id, version=t.version)
+            self.state.setdefault("published", {})[t.dataset_id] = t.version
 
     # ---- TDC: contract --------------------------------------------------------------------
 
@@ -425,7 +515,8 @@ class _Deployer:
         found = [m for m in self.env.releases() if m.platform == self.platform and families <= set(m.families)]
         return found
 
-    def contract(self) -> dict[str, Any]:
+    def candidate(self) -> dict[str, Any]:
+        """The contract this deployment would propose (fresh id/validity; same substance on re-runs)."""
         recipe = load_recipe(self.scenario / "recipe.yaml")
         families = {str(recipe.get("family"))}
         release_ids = [m.release_id for m in self.releases(families)]
@@ -443,14 +534,20 @@ class _Deployer:
         def customize(doc: dict[str, Any]) -> None:
             doc["output"]["location"] = {k: v for k, v in output_location.items() if v not in (None, {})}
 
-        candidate = build_contract(
-            self.scenario / "contract.yaml",
-            env=env,
-            resolve_manifest=catalog_resolver(self.cs),
-            customize=customize,
-            party_map=self.party_map if self.mapped else None,
-            version_suffix=self.version_suffix,
-        )
+        try:
+            return build_contract(
+                self.scenario / "contract.yaml",
+                env=env,
+                resolve_manifest=catalog_resolver(self.cs),
+                customize=customize,
+                party_map=self.party_map if self.mapped else None,
+                version_suffix=self.version_suffix,
+            )
+        except NotFoundError as exc:
+            raise StageError(f"datasets are not published yet: run --stage data first ({exc})") from exc
+
+    def contract(self) -> dict[str, Any]:
+        candidate = self.candidate()
         existing = self.find_reusable(candidate)
         if existing is not None:
             self.step("contract.reuse", contract_id=existing["contract_id"])
@@ -735,6 +832,8 @@ def environment_from_profile(profile: Profile, *, scenarios: Sequence[Path] = ()
 def deploy_scenario(
     scenario: Path, env: DepaEnv, profile: Profile, opts: DeployOptions, log: Log = print
 ) -> dict[str, Any]:
+    """Run the selected stages (default: all, one-shot). Stages are idempotent and resumable from
+    ``<work_dir>/state.json``, falling back to the services when it is missing."""
     if opts.platform not in PLATFORM_IDS:
         raise ValidationError(f"unknown platform {opts.platform}", code="bad_platform")
     if opts.cancel is not None and opts.cancel.is_set():
@@ -743,24 +842,52 @@ def deploy_scenario(
     templates = [d.dataset_template(p) for p in sorted((scenario / "datasets").glob("*.yaml"))]
     if not templates:
         raise ConfigError(f"{scenario}/datasets has no dataset templates")
+    staged = opts.stages is not None
+    stages = opts.stages or frozenset(STAGES)
+    if staged:
+        d.summary["stages"] = {}
+
+    def done(stage: str, **detail: Any) -> None:
+        d.save_state()
+        if staged:
+            d.summary["stages"][stage] = {"status": "done", **detail}
+
     d.check_cancel()
-    d.publish_datasets(templates)
-    if not d.acts_for(d.tdc):
+    if "keys" in stages:
+        d.stage_keys(templates)
+        done("keys")
+    if "data" in stages:
+        d.stage_data(templates)
+        done("data", published=d.state.get("published", {}))
+    later = stages & {"contract", "train", "model"}
+    if later and not d.acts_for(d.tdc):
         d.summary["skipped"].append(f"contract, job and outputs (TDC {d.tdc} keys not held/selected)")
         d.summary["status"] = "datasets-published"
         return d.summary
-    contract = d.contract()
-    record = d.sign(contract)
-    d.summary["contract_id"] = contract["contract_id"]
-    d.summary["contract_state"] = record.get("state")
-    if record.get("state") != "active":
-        d.summary["status"] = "awaiting-signatures"
-        return d.summary
-    if not opts.run:
-        d.summary["status"] = "contract-active"
-        return d.summary
-    d.check_cancel()
-    run = d.run(contract)
-    d.summary["result"] = d.outputs(run, contract)
-    d.summary["status"] = "succeeded"
+    if "contract" in stages:
+        contract = d.contract()
+        record = d.sign(contract)
+        d.state["contract_id"] = contract["contract_id"]
+        d.summary["contract_id"] = contract["contract_id"]
+        d.summary["contract_state"] = record.get("state")
+        done("contract", contract_id=contract["contract_id"], state=record.get("state"))
+        if record.get("state") != "active":
+            d.summary["status"] = "awaiting-signatures"
+            return d.summary
+        if not opts.run and not staged:
+            d.summary["status"] = "contract-active"
+            return d.summary
+    if "train" in stages or "model" in stages:
+        contract = d.resolve_contract()
+        d.summary["contract_id"] = contract["contract_id"]
+        if "train" in stages:
+            d.check_cancel()
+            run = d.run(contract)
+            d.state["run_id"] = run["run_id"]
+            done("train", run_id=run["run_id"], state=run["state"])
+        if "model" in stages:
+            run = d.resolve_run(contract)
+            d.summary["result"] = d.outputs(run, contract)
+            done("model", run_id=run["run_id"], receipt_file=d.summary["result"]["receipt_file"])
+    d.summary["status"] = "succeeded" if not staged or "model" in stages else "stages-completed"
     return d.summary

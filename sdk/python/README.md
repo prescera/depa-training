@@ -73,7 +73,7 @@ Global options: `--json` (machine-readable output), `--home DIR`, `--env FILE`, 
 | `job submit --platform aks\|gcp\|local --contract-id ID [--release M.json] ...` · `job status NAME` · `job logs NAME` | Deploy a clean room |
 | `run list --contract ID` · `run receipt RUN` · `run verify-receipt RUN [--txid T]` | Execution Receipts (+ CCF ledger proof) |
 | `model fetch --run RUN --out DIR` · `model decrypt DIR --run RUN --out DIR` | Outputs (manifest checked against the verified receipt) |
-| `scenario deploy NAME [--env FILE] --platform aks\|gcp\|local [--parties all\|a,b]` | End-to-end driver (below); without `--env`, `--platform local` uses the `depa dev up` profile |
+| `scenario deploy NAME [--env FILE] --platform aks\|gcp\|local [--parties all\|a,b] [--stage S]` | End-to-end driver (below); without `--env`, `--platform local` uses the `depa dev up` profile |
 | `dev up` · `dev down [--purge]` · `dev scenario run NAME` | Local CCF sandboxes, virtual attestation |
 
 `T` is a dataset template (`scenarios/<name>/datasets/<x>.yaml`): a catalog descriptor plus
@@ -95,6 +95,25 @@ the same code as the individual commands, so in production each party runs only 
 4. `job submit` (aks: `compute.aks`; gcp: `compute.gcp`; local: in-process, virtual attestation);
    wait for the run in the CS (`--wait-timeout`);
 5. `run verify-receipt`, `model fetch` + `decrypt` with the TDC key.
+
+**Stages.** `--stage keys|data|contract|train|model|all` (repeatable or comma list; default
+`all`, the one-shot behaviour above) runs one party action per invocation, e.g. one workflow step
+each:
+
+| Stage | Who | Does | Requires |
+|---|---|---|---|
+| `keys` | TDPs | create dataset keys in the KMS, set release policies | — |
+| `data` | TDPs | prepare (if needed), encrypt, upload, publish descriptors | `keys` |
+| `contract` | TDC, then each TDP | render + propose (or reuse an identical usable contract); verify + sign; wait until active | `data` |
+| `train` | TDC | submit the clean-room job (aks/gcp/local) and wait for the run | `contract` (active) |
+| `model` | TDC | verify the Execution Receipt, fetch and decrypt the model | `train` (a completed run) |
+
+Stages are idempotent and resume from `--work-dir/state.json` (`party_map`, published versions,
+`contract_id`, `run_id`; required with `--stage`). Without the state file they fall back to the
+services (catalog entries, an identical usable contract, the contract's latest completed run). A
+missing prerequisite fails with exit 2 and names the stage to run. With `--json` the summary has a
+`stages` object (one entry per stage run) and `status` `stages-completed` (or `succeeded` once
+`model` ran, `awaiting-signatures` if signatures are still missing).
 
 **Party slots.** When a scenario's native party ids are not parties of the environment (e.g. the
 fixed pilot set `tdc`, `tdp-1`…`tdp-4`), the scenario is mapped onto the environment's parties:
