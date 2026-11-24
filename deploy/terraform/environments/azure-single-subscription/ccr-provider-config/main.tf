@@ -8,22 +8,9 @@ module "naming" {
   tags            = var.tags
 }
 
-# Missing state (component not deployed yet) yields the defaults below.
-data "terraform_remote_state" "cluster" {
-  backend = "azurerm"
-  config = {
-    subscription_id      = var.subscription_id
-    resource_group_name  = var.state_backend.resource_group_name
-    storage_account_name = var.state_backend.storage_account_name
-    container_name       = var.state_backend.container_name
-    key                  = "depa-training/${var.state_backend.environment}/ccr-provider-cluster.tfstate"
-    use_azuread_auth     = true
-  }
-  defaults = {}
-}
 
 locals {
-  cluster = data.terraform_remote_state.cluster.outputs
+  cluster = var.cluster
 }
 
 data "azurerm_kubernetes_cluster" "this" {

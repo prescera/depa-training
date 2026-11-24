@@ -1,7 +1,7 @@
 name: Tear down
 
-# Tears down everything, in reverse order of setup: the scenario's collaborators, then the DC
-# services.
+# Tears down in reverse order of setup: the scenario's collaborators (scope scenario or all),
+# then the DC services (scope all only).
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +9,11 @@ on:
         description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
+      scope:
+        description: "scenario: collaborator resources only (DC services stay up) · all: everything"
+        type: choice
+        options: [scenario, all]
+        default: all
       confirm:
         description: Type the environment name again to confirm
         type: string
@@ -18,6 +23,9 @@ on:
       environment:
         type: string
         required: true
+      scope:
+        type: string
+        default: all
       confirm:
         type: string
         required: true
@@ -27,7 +35,7 @@ permissions: {}
 jobs:
   scenario:
     name: Tear down Scenario
-    if: inputs.confirm == inputs.environment
+    if: inputs.confirm == inputs.environment && (inputs.scope == 'scenario' || inputs.scope == 'all')
     uses: ./.github/workflows/teardown-scenario.yml
     permissions:
       contents: read
@@ -39,7 +47,7 @@ jobs:
   dc-services:
     name: Tear down DC services
     needs: scenario
-    if: inputs.confirm == inputs.environment
+    if: inputs.confirm == inputs.environment && inputs.scope == 'all'
     uses: ./.github/workflows/teardown-dc-services.yml
     permissions:
       contents: read

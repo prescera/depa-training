@@ -30,7 +30,14 @@ terraform {
 provider "azurerm" {
   subscription_id     = var.subscription_id
   storage_use_azuread = true
-  features {}
+  features {
+    # Demo deployment, torn down as a whole: Azure adds resources Terraform does not manage
+    # (e.g. Application Insights smart-detection alert rules), which would otherwise block
+    # deleting the resource groups.
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
 }
 
 # Local accounts are disabled on the cluster: Entra ID via kubelogin (fixed AKS server app id).

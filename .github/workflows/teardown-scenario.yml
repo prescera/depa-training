@@ -63,8 +63,9 @@ jobs:
         env:
           DIR: ${{ steps.tf.outputs.dir }}
         run: |
-          # Placeholder: destroy does not use the KMS keys.
-          jq -n '{kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
+          # Placeholders: destroy does not use the KMS keys or issuer.
+          jq -n '{kms_oidc_issuer_url: "https://teardown.invalid/app/oidc",
+                  kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
           terraform -chdir="${DIR}" destroy -no-color -auto-approve
 
   consumer:
@@ -103,8 +104,9 @@ jobs:
         env:
           DIR: ${{ steps.tf.outputs.dir }}
         run: |
-          # Placeholder: destroy does not use the KMS keys.
-          jq -n '{kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
+          # Placeholders: destroy does not use the KMS keys or issuer.
+          jq -n '{kms_oidc_issuer_url: "https://teardown.invalid/app/oidc",
+                  kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
           terraform -chdir="${DIR}" destroy -no-color -auto-approve
 
   ccr-config:
@@ -140,6 +142,14 @@ jobs:
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       - name: Install kubelogin
         run: sudo az aks install-cli --only-show-errors >/dev/null
+      - name: Cluster input
+        if: steps.tf.outputs.state-exists == 'true'
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: |
+          deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" ccr-provider-cluster \
+            | jq '{cluster: {resource_group_name, cluster_name, aci_resource_group_name, aci_subnet_name, acr_pull_identity}}' \
+            >"${DIR}/inputs.auto.tfvars.json"
       - name: Destroy
         if: steps.tf.outputs.state-exists == 'true'
         env:

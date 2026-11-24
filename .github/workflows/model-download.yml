@@ -11,6 +11,10 @@ on:
         description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
+      depa_version:
+        description: depa CLI release to install (e.g. 2.0.0); empty = build from this checkout
+        type: string
+        default: ""
       scenario:
         description: Scenario (scenarios/<name>)
         type: choice
@@ -26,6 +30,9 @@ on:
       environment:
         type: string
         required: true
+      depa_version:
+        type: string
+        default: ""
       scenario:
         type: string
         required: true
@@ -78,6 +85,7 @@ jobs:
           releases: "false"
           trainer-stack-for: ""
           kubelogin: "false"
+          depa-version: ${{ inputs.depa_version }}
       - name: Model download and provenance
         env:
           ENV_FILE: ${{ steps.cli.outputs.env-file }}

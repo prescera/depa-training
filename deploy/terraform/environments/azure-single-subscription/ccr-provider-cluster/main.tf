@@ -10,23 +10,7 @@ module "naming" {
   tags            = var.tags
 }
 
-# Missing state (component not deployed yet) yields the defaults below.
-data "terraform_remote_state" "registry" {
-  backend = "azurerm"
-  config = {
-    subscription_id      = var.subscription_id
-    resource_group_name  = var.state_backend.resource_group_name
-    storage_account_name = var.state_backend.storage_account_name
-    container_name       = var.state_backend.container_name
-    key                  = "depa-training/${var.state_backend.environment}/registry.tfstate"
-    use_azuread_auth     = true
-  }
-  defaults = { id = null }
-}
 
-locals {
-  acr_id = data.terraform_remote_state.registry.outputs.id
-}
 
 module "cluster" {
   source = "../../../modules/azure/ccr-aks-vn2"
@@ -38,8 +22,8 @@ module "cluster" {
   admin_group_object_ids          = var.aks_admin_group_object_ids
   job_submitters                  = [for id in var.job_submitter_object_ids : { object_id = id, kind = "User" }]
   api_server_authorized_ip_ranges = var.aks_api_authorized_ip_ranges
-  acr_id                          = local.acr_id
-  enable_acr_pull                 = local.acr_id != null
+  acr_id                          = var.registry_id
+  enable_acr_pull                 = var.registry_id != null
   create_log_analytics_workspace  = true
   # Demo simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
   # Azure endpoint in the region on 443 (defence in depth only; see the module README).

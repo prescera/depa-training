@@ -40,6 +40,10 @@ inputs:
     description: '"true" to install kubelogin (AKS submission)'
     required: false
     default: "false"
+  depa-version:
+    description: depa / depa-train release to install from this repository's GitHub Release v<version> (checksum-verified wheels); empty = build from the checkout
+    required: false
+    default: ""
 
 outputs:
   env-file:
@@ -61,6 +65,8 @@ runs:
       shell: bash
       env:
         SCENARIO: ${{ inputs.trainer-stack-for }}
+        DEPA_VERSION: ${{ inputs.depa-version }}
+        GH_TOKEN: ${{ inputs.github-token }}
         CMAKE_POLICY_VERSION_MINIMUM: "3.5" # dp-xgboost (classic) builds from its hashed sdist
       run: |
         set -euo pipefail
@@ -73,7 +79,17 @@ runs:
           python -m pip install --require-hashes -r "trainers/requirements/${family}.txt"
         fi
         python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
-        python -m pip install --no-deps ./trainers ./sdk/python
+        if [[ -z "${DEPA_VERSION}" ]]; then
+          python -m pip install --no-deps ./trainers ./sdk/python
+        else
+          [[ "${DEPA_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] || { echo "::error::invalid depa_version"; exit 1; }
+          dl="${RUNNER_TEMP}/depa-release"
+          gh release download "v${DEPA_VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${dl}" \
+            --pattern "depa-${DEPA_VERSION}-*.whl" --pattern "depa_train-${DEPA_VERSION}-*.whl" --pattern SHA256SUMS
+          (cd "${dl}" && sha256sum --check --ignore-missing --strict SHA256SUMS)
+          python -m pip install --no-deps "${dl}"/depa-*.whl "${dl}"/depa_train-*.whl
+        fi
+        depa --version || true
     - name: Install kubelogin
       if: inputs.kubelogin == 'true'
       shell: bash

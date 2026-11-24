@@ -18,14 +18,10 @@ variable "name_prefix" {
   }
 }
 
-variable "state_backend" {
-  type = object({
-    resource_group_name  = string
-    storage_account_name = string
-    container_name       = optional(string, "tfstate")
-    environment          = string
-  })
-  description = "Where the other component roots keep their state (read with terraform_remote_state): depa-training/<environment>/<component>.tfstate in this storage account."
+variable "registry_id" {
+  type        = string
+  description = "Clean-room image registry (id output of the registry component); null = no pull identity (public images). Re-apply after the registry exists."
+  default     = null
 }
 
 variable "aks_admin_group_object_ids" {

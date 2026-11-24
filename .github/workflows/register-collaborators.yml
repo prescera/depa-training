@@ -9,11 +9,18 @@ on:
         description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
+      depa_version:
+        description: depa CLI release to install (e.g. 2.0.0); empty = build from this checkout
+        type: string
+        default: ""
   workflow_call:
     inputs:
       environment:
         type: string
         required: true
+      depa_version:
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -50,6 +57,7 @@ jobs:
           releases: "true"
           trainer-stack-for: ""
           kubelogin: "false"
+          depa-version: ${{ inputs.depa_version }}
       - name: Register collaborators and artefacts
         env:
           ENV_FILE: ${{ steps.cli.outputs.env-file }}

@@ -13,14 +13,18 @@ variable "name_prefix" {
   }
 }
 
-variable "state_backend" {
+variable "cluster" {
   type = object({
-    resource_group_name  = string
-    storage_account_name = string
-    container_name       = optional(string, "tfstate")
-    environment          = string
+    resource_group_name     = string
+    cluster_name            = string
+    aci_resource_group_name = string
+    aci_subnet_name         = string
+    acr_pull_identity = optional(object({
+      id           = string
+      principal_id = string
+    }))
   })
-  description = "Where the other component roots keep their state (read with terraform_remote_state): depa-training/<environment>/<component>.tfstate in this storage account."
+  description = "Outputs of the ccr-provider-cluster component (the workflows pass them with deploy/scripts/state-outputs.sh)."
 }
 
 variable "job_submitter_object_ids" {

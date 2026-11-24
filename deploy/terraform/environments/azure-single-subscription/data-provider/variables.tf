@@ -18,16 +18,6 @@ variable "name_prefix" {
   }
 }
 
-variable "state_backend" {
-  type = object({
-    resource_group_name  = string
-    storage_account_name = string
-    container_name       = optional(string, "tfstate")
-    environment          = string
-  })
-  description = "Where the other component roots keep their state (read with terraform_remote_state): depa-training/<environment>/<component>.tfstate in this storage account."
-}
-
 variable "party_id" {
   type        = string
   description = "Data provider slot of the demo deployment (scenario providers map onto tdp-1..tdp-4). One state per provider: depa-training/<environment>/data-provider-<party_id>.tfstate."
@@ -45,8 +35,12 @@ variable "kms_jwks_json" {
 
 variable "kms_oidc_issuer_url" {
   type        = string
-  description = "KMS OIDC issuer. Default: the oidc_issuer_url output of the kms component."
-  default     = null
+  description = "KMS OIDC issuer (oidc_issuer_url output of the kms component; the workflows pass it with deploy/scripts/state-outputs.sh)."
+
+  validation {
+    condition     = startswith(var.kms_oidc_issuer_url, "https://")
+    error_message = "kms_oidc_issuer_url must be an https URL."
+  }
 }
 
 variable "operator_object_ids" {

@@ -1,7 +1,13 @@
 name: End-to-End demo
 
-# One click: Setup Data Collab -> Setup Training Collaborators -> Run Scenario, then optionally
-# Tear down (also after a failure). Every job runs in the chosen GitHub environment, whose
+# One click, or any back-to-back combination on the same deployment:
+#   Setup Data Collab -> Setup Training Collaborators -> Run Scenario -> Tear down
+# Each stage has a toggle; a skipped stage does not block the next one (its components must then
+# already exist, which the Plan job checks in the state blobs before anything runs). Teardown:
+#   none      keep everything
+#   scenario  Tear down Scenario only (collaborator resources); DC services stay up for the next run
+#   all       Tear down Scenario, then Tear down DC services
+# Teardown also runs after a failed stage. Every job runs in the chosen GitHub environment, whose
 # protection rules (reviewers) gate it.
 on:
   workflow_dispatch:
@@ -10,6 +16,22 @@ on:
         description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
+      setup_data_collab:
+        description: Set up the Data Collab (KMS, Contract Service, clean-room releases)
+        type: boolean
+        default: true
+      skip_cleanroom_build:
+        description: Skip the clean-room image build (with Setup Data Collab; reuse the latest manifests)
+        type: boolean
+        default: false
+      setup_collaborators:
+        description: Set up the training collaborators (providers, consumer, CCR provider)
+        type: boolean
+        default: true
+      run_scenario:
+        description: Run the scenario
+        type: boolean
+        default: true
       scenario:
         description: Scenario (scenarios/<name>)
         type: choice
@@ -20,31 +42,44 @@ on:
         type: choice
         options: [aks, gcp]
         default: aks
-      skip_cleanroom_build:
-        description: Skip the clean-room image build (reuse the latest release manifests)
-        type: boolean
-        default: false
+      depa_version:
+        description: depa CLI release to install (e.g. 2.0.0); empty = build from this checkout
+        type: string
+        default: ""
       teardown:
-        description: Tear down afterwards (also after a failure)
-        type: boolean
-        default: false
+        description: "Tear down afterwards: none · scenario (collaborators only) · all"
+        type: choice
+        options: [none, scenario, all]
+        default: none
   workflow_call:
     inputs:
       environment:
         type: string
         required: true
+      setup_data_collab:
+        type: boolean
+        default: true
+      skip_cleanroom_build:
+        type: boolean
+        default: false
+      setup_collaborators:
+        type: boolean
+        default: true
+      run_scenario:
+        type: boolean
+        default: true
       scenario:
         type: string
         default: credit-risk
       platform:
         type: string
         default: aks
-      skip_cleanroom_build:
-        type: boolean
-        default: false
+      depa_version:
+        type: string
+        default: ""
       teardown:
-        type: boolean
-        default: false
+        type: string
+        default: none
 
 permissions: {}
 
@@ -53,8 +88,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      SETUP_DATA_COLLAB: ${{ inputs.setup_data_collab }}
+      SKIP_CLEANROOM_BUILD: ${{ inputs.skip_cleanroom_build }}
+      SETUP_COLLABORATORS: ${{ inputs.setup_collaborators }}
+      RUN_SCENARIO: ${{ inputs.run_scenario }}
+      SCENARIO: ${{ inputs.scenario }}
+      PLATFORM: ${{ inputs.platform }}
+      TEARDOWN: ${{ inputs.teardown }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Check combination
+        run: |
+          errors=()
+          has() { [[ "$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" "$1")" != "{}" ]]; }
+          [[ "${TEARDOWN}" =~ ^(none|scenario|all)$ ]] || errors+=("teardown must be none, scenario or all")
+          [[ "${PLATFORM}" =~ ^(aks|gcp)$ ]] || errors+=("platform must be aks or gcp")
+          if [[ "${RUN_SCENARIO}" == true ]]; then
+            [[ "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ && -f "scenarios/${SCENARIO}/contract.yaml" ]] || errors+=("no scenario '${SCENARIO}'")
+          fi
+          if [[ "${SKIP_CLEANROOM_BUILD}" == true && "${SETUP_DATA_COLLAB}" != true ]]; then
+            echo "::notice::skip_cleanroom_build only applies with setup_data_collab; ignored"
+          fi
+          # Stages that are skipped must already be deployed.
+          if [[ "${SETUP_DATA_COLLAB}" != true && ( "${SETUP_COLLABORATORS}" == true || "${RUN_SCENARIO}" == true ) ]]; then
+            for c in kms contract-service; do has "${c}" || errors+=("setup_data_collab=false needs the ${c} component, which has no state"); done
+          fi
+          if [[ "${SETUP_COLLABORATORS}" != true && "${RUN_SCENARIO}" == true ]]; then
+            # The scenario's providers map onto tdp-1..tdp-<n>.
+            n="$(sed -n 's/^[[:space:]]*tdps:[[:space:]]*\[\(.*\)\].*/\1/p' "scenarios/${SCENARIO}/contract.yaml" | tr ',' '\n' | grep -c '[^[:space:]]' || true)"
+            needed=(data-consumer ccr-provider-cluster ccr-provider-config)
+            for i in $(seq 1 "${n:-0}"); do needed+=("data-provider-tdp-${i}"); done
+            for c in "${needed[@]}"; do has "${c}" || errors+=("setup_collaborators=false needs the ${c} component, which has no state"); done
+          fi
+          {
+            echo "### End-to-End demo plan"
+            echo "| Stage | Run |"; echo "|---|---|"
+            echo "| Setup Data Collab | ${SETUP_DATA_COLLAB} (skip clean-room build: ${SKIP_CLEANROOM_BUILD}) |"
+            echo "| Setup Training Collaborators | ${SETUP_COLLABORATORS} |"
+            echo "| Run Scenario | ${RUN_SCENARIO} (${SCENARIO} on ${PLATFORM}) |"
+            echo "| Tear down | ${TEARDOWN} |"
+          } >>"${GITHUB_STEP_SUMMARY}"
+          if [[ ${#errors[@]} -gt 0 ]]; then
+            for e in "${errors[@]}"; do echo "::error::${e}"; done
+            exit 1
+          fi
+
   collab:
     name: Setup Data Collab
+    needs: plan
+    if: inputs.setup_data_collab
     uses: ./.github/workflows/setup-data-collab.yml
     permissions:
       contents: read
@@ -67,7 +167,8 @@ jobs:
 
   collaborators:
     name: Setup Training Collaborators
-    needs: collab
+    needs: [plan, collab]
+    if: ${{ !cancelled() && !failure() && inputs.setup_collaborators }}
     uses: ./.github/workflows/setup-training-collaborators.yml
     permissions:
       contents: read
@@ -78,7 +179,8 @@ jobs:
 
   scenario:
     name: Run Scenario
-    needs: collaborators
+    needs: [plan, collab, collaborators]
+    if: ${{ !cancelled() && !failure() && inputs.run_scenario }}
     uses: ./.github/workflows/run-scenario.yml
     permissions:
       contents: read
@@ -88,17 +190,29 @@ jobs:
       environment: ${{ inputs.environment }}
       scenario: ${{ inputs.scenario }}
       platform: ${{ inputs.platform }}
+      depa_version: ${{ inputs.depa_version }}
     secrets: inherit
 
-  teardown:
-    name: Tear down
-    needs: [collab, collaborators, scenario]
-    if: always() && inputs.teardown
-    uses: ./.github/workflows/teardown.yml
+  teardown-scenario:
+    name: Tear down Scenario
+    needs: [plan, collab, collaborators, scenario]
+    if: ${{ always() && needs.plan.result == 'success' && (inputs.teardown == 'scenario' || inputs.teardown == 'all') }}
+    uses: ./.github/workflows/teardown-scenario.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: ${{ inputs.environment }}
-      confirm: ${{ inputs.environment }}
+    secrets: inherit
+
+  teardown-dc-services:
+    name: Tear down DC services
+    needs: [plan, teardown-scenario]
+    if: ${{ always() && needs.plan.result == 'success' && inputs.teardown == 'all' && needs.teardown-scenario.result == 'success' }}
+    uses: ./.github/workflows/teardown-dc-services.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
     secrets: inherit

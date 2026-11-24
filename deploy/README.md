@@ -148,12 +148,28 @@ End-to-End demo                              end-to-end.yml
 │  ├─ Contract Signing                       contract-signing.yml            --stage contract
 │  ├─ Model Training in CCR                  model-training.yml              --stage train
 │  └─ Model download and provenance          model-download.yml              --stage model, receipts artifact
-└─ Tear down (optional)                      teardown.yml
+└─ Tear down (teardown: scenario | all)      teardown.yml                    scope: scenario | all
    ├─ Tear down Scenario                     teardown-scenario.yml           data providers, data consumer, CCR config → cluster
    └─ Tear down DC services                  teardown-dc-services.yml        registry (job)
       ├─ Tear down KMS                       teardown-kms.yml
       └─ Tear down Contract Service          teardown-contract-service.yml
 ```
+
+**Combinations** (End-to-End demo inputs; a first *Plan* job checks the state blobs and fails fast
+when a skipped stage's components are missing; teardown also runs after a failed stage):
+
+| Use | setup_data_collab | setup_collaborators | run_scenario | teardown |
+|---|---|---|---|---|
+| Fresh demo | ✓ | ✓ | ✓ | `none` (or `all` for a throwaway run) |
+| Back-to-back scenario on a running deployment | ✗ | ✗ | ✓ (pick the scenario) | `none` |
+| New scenario on fresh collaborators, keep DC services | ✗ | ✓ | ✓ | `scenario` |
+| Scenario-only teardown | ✗ | ✗ | ✗ | `scenario` |
+| Full teardown | ✗ | ✗ | ✗ | `all` |
+
+`skip_cleanroom_build` (with `setup_data_collab`) reuses the latest clean-room release manifests.
+**Tear down** run on its own takes the same `scope` (`scenario` | `all`). `depa_version`
+(End-to-End demo and the Run Scenario tree) installs the CLI from the GitHub Release
+`v<version>` (checksum-verified wheels) instead of building it from the checkout.
 
 Each Terraform leaf initialises one component root (`azure-terraform` action) against
 `depa-training/<environment>/<component>.tfstate`. Each scenario stage starts on a fresh runner
@@ -186,17 +202,30 @@ S="--account <statestorage> --environment <env>"
 ../../../scripts/render-env.sh $S --parties-json <(../../../scripts/demo-parties.py) --keys-dir ./demo-keys --releases-dir ../../../../ccr/releases --out depa-env.yaml
 depa dc setup --env depa-env.yaml --step bootstrap-kms,bootstrap-cs,link
 JWKS="$(../../../scripts/fetch-kms-jwks.sh "$(../../../scripts/state-outputs.sh $S kms | jq -r .ledger_name)")"
+ISSUER="$(../../../scripts/state-outputs.sh $S kms | jq -r .oidc_issuer_url)"
 pkg="$(../../modules/azure/federation-broker/build-package.sh)"
 for p in tdp-1 tdp-2 tdp-3 tdp-4; do   # one state per provider: key depa-training/<env>/data-provider-$p.tfstate
   (cd data-provider && terraform init -reconfigure -backend-config=key=depa-training/<env>/data-provider-$p.tfstate \
-     && terraform apply -var party_id=$p -var kms_jwks_json="$JWKS" \
+     && terraform apply -var party_id=$p -var kms_jwks_json="$JWKS" -var kms_oidc_issuer_url="$ISSUER" \
      && ../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json <(terraform output -json brokers))
 done
-(cd data-consumer && terraform init && terraform apply -var kms_jwks_json="$JWKS" \
+(cd data-consumer && terraform init && terraform apply -var kms_jwks_json="$JWKS" -var kms_oidc_issuer_url="$ISSUER" \
    && ../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json <(terraform output -json brokers))
-(cd ccr-provider-cluster && terraform init && terraform apply)
+(cd ccr-provider-cluster && terraform init && terraform apply -var registry_id="$(../../../../scripts/state-outputs.sh $S registry | jq -r .id)")
+../../../scripts/state-outputs.sh $S ccr-provider-cluster \
+  | jq '{cluster: {resource_group_name, cluster_name, aci_resource_group_name, aci_subnet_name, acr_pull_identity}}' > ccr-provider-config/inputs.auto.tfvars.json
 (cd ccr-provider-config && terraform init && terraform apply)   # needs kubelogin
 ```
+
+## Releases of the Python packages
+
+Tagging `v<version>` runs **Release**: CCR images and manifests per family, plus sdists and wheels
+of `depa` (sdk/python), `depa-train` (trainers) and `depa-console` (gui) built with
+`python -m build` (each `pyproject.toml` version must equal the tag), with `SHA256SUMS` and build
+provenance attestations, all attached to the GitHub Release (a pre-release for tags with `-`).
+Publishing to PyPI is optional and off by default: create a PyPI *trusted publisher* for each
+project (owner, repository, workflow `release.yml`, environment `pypi`), create the GitHub
+environment `pypi`, and set the repository variable `PUBLISH_PYPI=true`.
 
 ## Troubleshooting
 

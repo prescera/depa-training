@@ -81,9 +81,44 @@ jobs:
           path: ${{ runner.temp }}/releases/
           if-no-files-found: error
 
+  packages:
+    name: Python packages (depa, depa-train, depa-console)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build sdists and wheels
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python -m pip install "build==1.6.1"
+          for pkg in sdk/python trainers gui; do
+            declared="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "${pkg}/pyproject.toml" | head -1)"
+            [[ "${declared}" == "${version}" ]] || { echo "::error::${pkg}/pyproject.toml version ${declared} != tag ${version}"; exit 1; }
+            python -m build --sdist --wheel --outdir dist "${pkg}"
+          done
+          (cd dist && sha256sum ./* > SHA256SUMS.packages)
+          { echo "### Python packages"; echo '```'; cat dist/SHA256SUMS.packages; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-packages
+          path: dist/
+          if-no-files-found: error
+
   publish:
-    name: Draft GitHub release
-    needs: ccr-release
+    name: GitHub release
+    needs: [ccr-release, packages]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -92,13 +127,37 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: ccr-releases-*
-          path: releases
+          path: release
           merge-multiple: true
-      - name: Create draft release with manifests
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-packages
+          path: release
+      - name: Create release with packages and manifests
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          (cd releases && sha256sum ./* > SHA256SUMS)
-          gh release create "${GITHUB_REF_NAME}" releases/* \
-            --repo "${GITHUB_REPOSITORY}" --draft --verify-tag --title "${GITHUB_REF_NAME}" \
-            --notes "CCR release manifests (ccr/releases/<release_id>.json). Commit them to ccr/releases/ and submit approve_ccr_release proposals for the non-debug records to both KMS and CS."
+          rm -f release/SHA256SUMS.packages
+          (cd release && sha256sum ./* > SHA256SUMS)
+          prerelease=()
+          [[ "${GITHUB_REF_NAME}" == *-* ]] && prerelease=(--prerelease)
+          gh release create "${GITHUB_REF_NAME}" release/* "${prerelease[@]}" \
+            --repo "${GITHUB_REPOSITORY}" --verify-tag --title "${GITHUB_REF_NAME}" \
+            --notes "Python packages (depa, depa-train, depa-console: sdists and wheels) and CCR release manifests (ccr/releases/<release_id>.json), with SHA256SUMS and build provenance attestations. Submit approve_ccr_release proposals for the non-debug manifests to both KMS and CS. Install the CLI from this release with: pip install depa-<version>-py3-none-any.whl depa_train-<version>-py3-none-any.whl"
+
+  pypi:
+    name: Publish to PyPI (optional)
+    needs: packages
+    if: vars.PUBLISH_PYPI == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-packages
+          path: dist
+      - run: rm -f dist/SHA256SUMS.packages
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

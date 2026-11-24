@@ -66,9 +66,12 @@ jobs:
         env:
           DIR: ${{ steps.tf.outputs.dir }}
         run: |
-          # The SAS broker pins the KMS JWKS (TLS pinned to the KMS ledger, cross-checked with GET /info).
-          ledger="$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" kms | jq -er '.ledger_name')"
-          jq -n --arg j "$(deploy/scripts/fetch-kms-jwks.sh "${ledger}")" '{kms_jwks_json: $j}' >"${DIR}/broker.auto.tfvars.json"
+          # The SAS broker pins the KMS JWKS (TLS pinned to the KMS ledger, cross-checked with GET /info)
+          # and checks the KMS issuer.
+          kms="$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" kms)"
+          ledger="$(jq -er '.ledger_name' <<<"${kms}")" || { echo "::error::the kms component is not deployed"; exit 1; }
+          jq -n --arg j "$(deploy/scripts/fetch-kms-jwks.sh "${ledger}")" --arg i "$(jq -er '.oidc_issuer_url' <<<"${kms}")" \
+            '{kms_jwks_json: $j, kms_oidc_issuer_url: $i}' >"${DIR}/broker.auto.tfvars.json"
       - name: Terraform plan
         env:
           DIR: ${{ steps.tf.outputs.dir }}

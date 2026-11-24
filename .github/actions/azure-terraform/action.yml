@@ -116,8 +116,6 @@ runs:
         } >>"${GITHUB_ENV}"
 
         # Component tfvars: common settings plus what this root declares.
-        state_backend="$(jq -n --arg rg "${TFSTATE_RESOURCE_GROUP}" --arg sa "${TFSTATE_STORAGE_ACCOUNT}" --arg env "${DEPLOY_ENV}" \
-          '{resource_group_name: $rg, storage_account_name: $sa, container_name: "tfstate", environment: $env}')"
         common="$(jq -n --arg sub "${ARM_SUBSCRIPTION_ID}" --arg prefix "${NAME_PREFIX}" '{subscription_id: $sub, name_prefix: $prefix}')"
         location="$(jq -n --arg l "${AZURE_LOCATION}" '{location: $l}')"
         case "${COMPONENT}" in
@@ -128,17 +126,15 @@ runs:
           registry)
             extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" '{registry_pusher_object_ids: [$d]}' | jq ". + ${location}")" ;;
           data-provider)
-            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg p "${PARTY}" --argjson sb "${state_backend}" \
-              '{party_id: $p, operator_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg p "${PARTY}" \
+              '{party_id: $p, operator_object_ids: [$d]}' | jq ". + ${location}")" ;;
           data-consumer)
-            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --argjson sb "${state_backend}" \
-              '{operator_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" '{operator_object_ids: [$d]}' | jq ". + ${location}")" ;;
           ccr-provider-cluster)
-            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg g "${AKS_ADMIN_GROUP_OBJECT_ID}" --argjson sb "${state_backend}" \
-              '{aks_admin_group_object_ids: [$g], job_submitter_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg g "${AKS_ADMIN_GROUP_OBJECT_ID}" \
+              '{aks_admin_group_object_ids: [$g], job_submitter_object_ids: [$d]}' | jq ". + ${location}")" ;;
           ccr-provider-config)
-            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --argjson sb "${state_backend}" \
-              '{job_submitter_object_ids: [$d], state_backend: $sb}')" ;;
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" '{job_submitter_object_ids: [$d]}')" ;;
         esac
         jq -n --argjson a "${common}" --argjson b "${extra}" '$a + $b' >"${dir}/settings.auto.tfvars.json"
 

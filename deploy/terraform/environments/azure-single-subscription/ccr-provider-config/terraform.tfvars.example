@@ -1,8 +1,10 @@
 subscription_id = "00000000-0000-0000-0000-000000000000"
 name_prefix     = "demo1"
-state_backend = {
-  resource_group_name  = "depa-training-v2-tfstate-rg"
-  storage_account_name = "<statestorage>"
-  environment          = "<github-environment>"
-}
 job_submitter_object_ids = ["33333333-3333-3333-3333-333333333333"]
+# cluster: deploy/scripts/state-outputs.sh ... ccr-provider-cluster
+cluster = {
+  resource_group_name     = "demo1-ccr-provider-rg"
+  cluster_name            = "demo1-ccr-ccr-aks"
+  aci_resource_group_name = "demo1-ccr-ccr-aci-rg"
+  aci_subnet_name         = "cg"
+}

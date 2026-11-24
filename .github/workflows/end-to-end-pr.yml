@@ -26,5 +26,5 @@ jobs:
       environment: ${{ vars.DEMO_ENVIRONMENT }}
       scenario: credit-risk
       platform: aks
-      teardown: true
+      teardown: all
     secrets: inherit
