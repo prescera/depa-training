@@ -110,3 +110,13 @@ def test_parse_stages() -> None:
     with pytest.raises(ConfigError) as exc:
         parse_stages(["keys,bogus"])
     assert exc.value.exit_code == 2
+
+
+def test_parse_dc_steps() -> None:
+    from depa.deployment import parse_dc_steps
+
+    assert parse_dc_steps([]) is None and parse_dc_steps(["all"]) is None
+    assert parse_dc_steps(["bootstrap-kms", "link,register"]) == frozenset({"bootstrap-kms", "link", "register"})
+    with pytest.raises(ConfigError) as exc:
+        parse_dc_steps(["bootstrap"])
+    assert exc.value.exit_code == 2

@@ -213,10 +213,14 @@ def setup(
     allow_virtual_attestation: Annotated[
         bool, typer.Option(help="Bootstrap with virtual attestation enabled (development only)")
     ] = False,
+    step: Annotated[
+        list[str] | None,
+        typer.Option("--step", help="bootstrap-kms | bootstrap-cs | link | register | all (repeatable/comma)"),
+    ] = None,
 ) -> None:
     """One-time / idempotent governance from an environment file: bootstrap if needed, register the
     parties, pin peers, approve the releases in releases_dir in both services, set OIDC settings."""
-    from depa.deployment import dc_setup  # noqa: PLC0415
+    from depa.deployment import dc_setup, parse_dc_steps  # noqa: PLC0415
     from depa.env import load_env  # noqa: PLC0415
     from depa.profile import depa_home  # noqa: PLC0415
 
@@ -232,6 +236,7 @@ def setup(
         operator=operator,
         operator_token=lambda url: _operator_token(url, operator_token_env),
         allow_virtual=allow_virtual_attestation,
+        steps=parse_dc_steps(step or []),
         log=lambda m: sys.stderr.write(f"[dc setup] {m}\n"),
     )
     emit(summary)

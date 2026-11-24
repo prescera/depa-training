@@ -74,6 +74,18 @@ def _public_record(profile: Profile, party_id: str) -> dict[str, Any] | None:
 # depa dc setup
 
 
+DC_STEPS = ("bootstrap-kms", "bootstrap-cs", "link", "register")
+
+
+def parse_dc_steps(values: Iterable[str]) -> frozenset[str] | None:
+    """``--step`` values (repeatable or comma lists) -> a step set; ``None`` means all."""
+    names = {v.strip() for value in values for v in value.split(",") if v.strip()}
+    unknown = names - {*DC_STEPS, "all"}
+    if unknown:
+        raise ConfigError(f"unknown step(s) {sorted(unknown)}; choose from {', '.join(DC_STEPS)}, all")
+    return None if not names or "all" in names else frozenset(names)
+
+
 def dc_setup(
     env: DepaEnv,
     profile: Profile,
@@ -81,20 +93,40 @@ def dc_setup(
     operator: tuple[str, str] | None = None,
     operator_token: Callable[[str], str | None] | None = None,
     allow_virtual: bool = False,
+    steps: frozenset[str] | None = None,
     log: Log = print,
 ) -> dict[str, Any]:
-    """``operator`` (client cert/key) or ``operator_token(service_url)`` (ACL Administrator bearer)
-    authenticate ``/gov/bootstrap``; they are only used when a service is not yet bootstrapped."""
+    """Data Collaborative governance from an environment file, as idempotent steps (default: all):
+
+    * ``bootstrap-kms`` / ``bootstrap-cs``: operator bootstrap of that service (env dc-members,
+      majority threshold, ``base_url`` and ``allow_virtual_attestation``); skipped when done.
+      ``operator`` (client cert/key) or ``operator_token(service_url)`` authenticate it.
+    * ``link`` (both bootstrapped): pin each service's keys in the other, set
+      ``trust_bundle_digest`` in both and the KMS OIDC settings.
+    * ``register`` (both bootstrapped): register every env party and approve every release in
+      ``releases_dir`` in both services (identical ones skipped).
+
+    Each step only reads the env file and the services, so it can run in a fresh process.
+    """
+    selected = steps or frozenset(DC_STEPS)
     kms, cs = profile.kms_client(), profile.cs_client()
     members = [p.party_id for p in env.parties_with("dc-member")]
-    held_members = [m for m in members if _held(profile, m)]
-    if not held_members:
-        raise ConfigError("dc setup needs the keys of at least one dc-member party")
-    summary: dict[str, Any] = {"bootstrapped": [], "proposals": {"kms": [], "cs": []}, "skipped": []}
+    summary: dict[str, Any] = {
+        "steps": [s for s in DC_STEPS if s in selected],
+        "bootstrapped": [],
+        "proposals": {"kms": [], "cs": []},
+        "skipped": [],
+    }
+
     for client, which in ((kms, "kms"), (cs, "cs")):
+        if f"bootstrap-{which}" not in selected:
+            continue
         if client.info().bootstrapped:
+            summary["skipped"].append(f"{which}: already bootstrapped")
             continue
         records = [r for m in members if (r := _public_record(profile, m)) is not None]
+        if not records:
+            raise ConfigError("bootstrap needs the party.json of at least one dc-member party in the env file")
         endpoint = client.http.endpoint
         token = operator_token(endpoint.base) if operator is None and operator_token is not None else None
         if operator is None and not token:
@@ -110,6 +142,18 @@ def dc_setup(
         summary["bootstrapped"].append(which)
         log(f"{which}: bootstrapped with members {members}")
 
+    governing = selected & {"link", "register"}
+    if not governing:
+        return summary
+    infos = {"kms": kms.info(), "cs": cs.info()}
+    for which in ("kms", "cs"):
+        if not infos[which].bootstrapped:
+            step = sorted(governing)[0]
+            raise StageError(f"{step} needs both services bootstrapped: run --step bootstrap-{which} first")
+    held_members = [m for m in members if _held(profile, m)]
+    if not held_members:
+        raise ConfigError("link/register need the keys of at least one dc-member party")
+
     def act(client: BaseClient, which: str, actions: list[dict[str, Any]]) -> None:
         if not actions:
             return
@@ -123,61 +167,63 @@ def dc_setup(
         )
         log(f"{which}: {[a['name'] for a in actions]} -> {result.get('state')}")
 
-    infos = {"kms": kms.info(), "cs": cs.info()}
-    for client, which, peer_url, peer in ((kms, "kms", cs.base_url, "cs"), (cs, "cs", kms.base_url, "kms")):
-        actions: list[dict[str, Any]] = []
-        for p in env.parties:
-            record = _public_record(profile, p.party_id)
-            if record is None:
-                summary["skipped"].append(f"{p.party_id}: no party.json in {p.key_dir}")
-                continue
-            if "dc-member" in p.roles:
-                continue  # members only via bootstrap / set_member (unanimous)
-            try:
-                if client.get_party(p.party_id).raw == record:
+    if "link" in selected:
+        for client, which, peer_url, peer in ((kms, "kms", cs.base_url, "cs"), (cs, "cs", kms.base_url, "kms")):
+            actions: list[dict[str, Any]] = []
+            peer_info = infos[peer]
+            if pinned_peer_jwks(client, peer_info.service) != list(peer_info.jwks):
+                pin = {"name": peer_info.service, "url": peer_url, "jwks": list(peer_info.jwks)}
+                actions.append({"name": "set_peer_service", "args": pin})
+            if which == "kms":
+                actions += _oidc_actions(env, client, summary)
+            act(client, which, actions)
+        for client, which in ((kms, "kms"), (cs, "cs")):  # after the pins: the bundle includes both JWKS
+            act(client, which, trust_bundle_settings_actions(profile, client, kms, cs))
+
+    if "register" in selected:
+        for client, which in ((kms, "kms"), (cs, "cs")):
+            actions = []
+            for p in env.parties:
+                record = _public_record(profile, p.party_id)
+                if record is None:
+                    summary["skipped"].append(f"{p.party_id}: no party.json in {p.key_dir}")
                     continue
-            except NotFoundError:
-                pass
-            actions.append({"name": "set_party", "args": record})
-        peer_info = infos[peer]
-        if pinned_peer_jwks(client, peer_info.service) != list(peer_info.jwks):
-            actions.append(
-                {
-                    "name": "set_peer_service",
-                    "args": {"name": peer_info.service, "url": peer_url, "jwks": list(peer_info.jwks)},
-                }
-            )
-        for manifest in env.releases():
-            try:
-                entry = client.get_release(manifest.release_id)
-                if entry.approved and digest(entry.release) == digest(manifest.release):
-                    continue
-            except NotFoundError:
-                pass
-            actions.append({"name": "approve_ccr_release", "args": manifest.release})
-        if which == "kms":
-            issuer = env.service("kms").get("oidc_issuer")
-            if issuer:
-                audiences = sorted(
-                    {
-                        a
-                        for loc in (env.raw.get("outputs") or {}).values()
-                        if loc.get("federation") and (a := federation_audience(loc["connector"], loc["federation"]))
-                    }
-                )
-                oidc = {
-                    "issuer_url": str(issuer).rstrip("/"),
-                    "token_ttl_s": 900,
-                    "allowed_audiences_global": audiences,
-                }
-                if latest_accepted_args(client, "set_oidc_settings") != oidc:
-                    actions.append({"name": "set_oidc_settings", "args": oidc})
-            else:
-                summary["skipped"].append("kms: collaborative.kms.oidc_issuer not set; OIDC settings unchanged")
-        act(client, which, actions)
-    for client, which in ((kms, "kms"), (cs, "cs")):  # after peer pins: the bundle includes both JWKS
-        act(client, which, trust_bundle_settings_actions(profile, client, kms, cs))
+                if "dc-member" in p.roles:
+                    continue  # members only via bootstrap / set_member (unanimous)
+                try:
+                    if client.get_party(p.party_id).raw == record:
+                        continue
+                except NotFoundError:
+                    pass
+                actions.append({"name": "set_party", "args": record})
+            for manifest in env.releases():
+                try:
+                    entry = client.get_release(manifest.release_id)
+                    if entry.approved and digest(entry.release) == digest(manifest.release):
+                        continue
+                except NotFoundError:
+                    pass
+                actions.append({"name": "approve_ccr_release", "args": manifest.release})
+            act(client, which, actions)
     return summary
+
+
+def _oidc_actions(env: DepaEnv, kms: BaseClient, summary: dict[str, Any]) -> list[dict[str, Any]]:
+    issuer = env.service("kms").get("oidc_issuer")
+    if not issuer:
+        summary["skipped"].append("kms: collaborative.kms.oidc_issuer not set; OIDC settings unchanged")
+        return []
+    audiences = sorted(
+        {
+            a
+            for loc in (env.raw.get("outputs") or {}).values()
+            if loc.get("federation") and (a := federation_audience(loc["connector"], loc["federation"]))
+        }
+    )
+    oidc = {"issuer_url": str(issuer).rstrip("/"), "token_ttl_s": 900, "allowed_audiences_global": audiences}
+    if latest_accepted_args(kms, "set_oidc_settings") == oidc:
+        return []
+    return [{"name": "set_oidc_settings", "args": oidc}]
 
 
 # ---------------------------------------------------------------------------------------------
