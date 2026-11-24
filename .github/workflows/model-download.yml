@@ -82,7 +82,7 @@ jobs:
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
           party-keys: ${{ secrets.DEPA_PARTY_KEYS }}
           github-token: ${{ github.token }}
-          releases: "false"
+          releases: "true"
           trainer-stack-for: ""
           kubelogin: "false"
           depa-version: ${{ inputs.depa_version }}
