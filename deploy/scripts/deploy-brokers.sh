@@ -53,9 +53,19 @@ deploy_one() {
     log "${app}: package ${sha:0:12} already deployed"
     return 0
   fi
-  scm="$(az functionapp show --resource-group "${rg}" --name "${app}" \
-    --query "hostNameSslStates[?hostType=='Repository'].name | [0]" -o tsv)"
-  [[ -n "${scm}" && "${scm}" != "None" ]] || die "${app}: no SCM host"
+  # The SCM (deployment) host, as the Azure CLI resolves it: the site's Repository-type host
+  # name, read from ARM and matched case-insensitively; otherwise derived from the default host
+  # name (<app>[-<hash>].<rest> -> <app>[-<hash>].scm.<rest>, also for regional host names).
+  az rest --method get --url "https://management.azure.com${id}?api-version=2024-04-01" \
+    --output json >"${tmp}/site.json"
+  scm="$(jq -r '[.properties.hostNameSslStates[]? | select((.hostType // "") | ascii_downcase == "repository") | .name][0] // empty' "${tmp}/site.json")"
+  if [[ -z "${scm}" ]]; then
+    local host
+    host="$(jq -r '.properties.defaultHostName // empty' "${tmp}/site.json")"
+    [[ "${host}" == *.* ]] || die "${app}: no SCM host and no default host name"
+    scm="${host%%.*}.scm.${host#*.}"
+  fi
+  log "${app}: SCM host ${scm}"
 
   log "${app}: deploying package ${sha:0:12}"
   code="$(curl -sS -o "${tmp}/resp" -w '%{http_code}' -X POST \
