@@ -20,7 +20,7 @@ terraform {
   #   resource_group_name  = "<state-rg>"
   #   storage_account_name = "<statestorage>"
   #   container_name       = "tfstate"
-  #   key                  = "depa-training/azure-pilot/2-workloads.tfstate"
+  #   key                  = "depa-training/<environment>/2-workloads.tfstate"
   #   use_azuread_auth     = true
   # }
 }

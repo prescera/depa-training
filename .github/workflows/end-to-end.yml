@@ -1,15 +1,14 @@
-name: Pilot · end-to-end demo
+name: "End to end: steps 1–5 for one scenario (Azure, optional teardown)"
 
-# One click: deploy the Azure pilot, run a scenario, optionally tear everything down.
-#   1-platform -> services (+ DC setup) -> 2-workloads ┐
-#   1-platform -> CCR releases ────────────────────────┴-> scenario -> (teardown)
-# Each stage is the standalone workflow, called as a reusable workflow; every job runs in the
-# chosen GitHub environment, so its protection rules (reviewers) gate the run.
+# One click: runs workflows 1-5 as reusable workflows, then optionally tears everything down.
+#   1 platform -> 2 DC services -> 3 party resources ┐
+#   1 platform -> 4 clean-room images ───────────────┴-> 5 run scenario -> (teardown)
+# Every job runs in the chosen GitHub environment, so its protection rules (reviewers) gate it.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment of the pilot
+        description: GitHub environment with the Azure secrets and variables (approval gate)
         type: environment
         required: true
       scenario:
@@ -18,12 +17,12 @@ on:
         options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
         default: credit-risk
       platform:
-        description: Clean-room platform
+        description: "Clean-room platform: aks (Azure confidential ACI) or gcp (Confidential Space)"
         type: choice
         options: [aks, gcp]
         default: aks
       teardown:
-        description: Destroy the pilot afterwards (also on failure)
+        description: Tear down all Azure resources afterwards (also after a failure)
         type: boolean
         default: false
   workflow_call:
@@ -43,26 +42,27 @@ on:
 
 permissions: {}
 
-# Distinct from the stages' own groups (pilot-<env>, …) so they can run inside this run.
+# Distinct from the stages' own groups (azure-<env>, …) so they can run inside this run.
 concurrency:
-  group: demo-${{ inputs.environment }}
+  group: end-to-end-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
   platform:
-    uses: ./.github/workflows/deploy-infra.yml
+    name: 1 · Platform
+    uses: ./.github/workflows/1-deploy-platform.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: ${{ inputs.environment }}
-      phase: 1-platform
       apply: true
     secrets: inherit
 
-  services:
+  dc-services:
+    name: 2 · DC services
     needs: platform
-    uses: ./.github/workflows/deploy-services.yml
+    uses: ./.github/workflows/2-deploy-dc-services.yml
     permissions:
       contents: read
       id-token: write
@@ -70,21 +70,22 @@ jobs:
       environment: ${{ inputs.environment }}
     secrets: inherit
 
-  workloads:
-    needs: services
-    uses: ./.github/workflows/deploy-infra.yml
+  party-resources:
+    name: 3 · Party resources
+    needs: dc-services
+    uses: ./.github/workflows/3-deploy-party-resources.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: ${{ inputs.environment }}
-      phase: 2-workloads
       apply: true
     secrets: inherit
 
-  releases:
+  images:
+    name: 4 · Clean-room images
     needs: platform
-    uses: ./.github/workflows/build-releases.yml
+    uses: ./.github/workflows/4-build-clean-room-images.yml
     permissions:
       contents: read
       id-token: write
@@ -94,8 +95,9 @@ jobs:
     secrets: inherit
 
   scenario:
-    needs: [workloads, releases]
-    uses: ./.github/workflows/run-scenario.yml
+    name: 5 · Run scenario
+    needs: [party-resources, images]
+    uses: ./.github/workflows/5-run-scenario.yml
     permissions:
       contents: read
       id-token: write
@@ -107,7 +109,8 @@ jobs:
     secrets: inherit
 
   teardown:
-    needs: [platform, services, workloads, releases, scenario]
+    name: Tear down
+    needs: [platform, dc-services, party-resources, images, scenario]
     if: always() && inputs.teardown
     uses: ./.github/workflows/teardown.yml
     permissions:

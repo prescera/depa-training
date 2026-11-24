@@ -23,7 +23,7 @@ composed here only in [`environments/dc`](environments/dc).
 | [`tdp-aws`](environments/tdp-aws), [`tdp-azure`](environments/tdp-azure), [`tdp-gcp`](environments/tdp-gcp) | TDP | single apply, then register datasets with the DC |
 | [`tdc-azure-aks`](environments/tdc-azure-aks) | TDC / CCRP | `infra/` then `cluster/` |
 | [`tdc-gcp-cs`](environments/tdc-gcp-cs) | TDC / CCRP | single apply |
-| [`azure-pilot`](environments/azure-pilot) | whole collaborative, one Azure subscription | `1-platform` → deploy services + DC setup → `2-workloads` (see [`../README.md`](../README.md)) |
+| [`azure-single-subscription`](environments/azure-single-subscription) | whole collaborative, one Azure subscription | `1-platform` → deploy services + DC setup → `2-workloads` (see [`../README.md`](../README.md)) |
 | [`dc`](environments/dc) | DC | `1-core/` → manual ACL Private Link Service → `2-gateway/` → app bundle + bootstrap |
 
 The DC must be up first (its OIDC issuer URL is an input to every storage module).

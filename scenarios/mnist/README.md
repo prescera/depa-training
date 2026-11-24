@@ -30,7 +30,7 @@ bash prepare/prepare_all.sh --inputs /tmp/mnist/inputs
 depa-train run --recipe recipe.yaml --inputs /tmp/mnist/inputs --outputs /tmp/mnist/out --result /tmp/mnist/result.json
 ```
 
-On Azure, run **Pilot · end-to-end demo** with scenario `mnist`.
+On Azure, run the **End to end** workflow with scenario `mnist`.
 
 Verified result (CPU, 1 epoch, about 10 s): accuracy 0.974, F1 0.974.
 

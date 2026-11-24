@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail fast unless an Azure region can host the whole pilot:
+# Fail fast unless an Azure region can host the single-subscription deployment:
 #   (a) Azure Confidential Ledger      (az provider show -n Microsoft.ConfidentialLedger)
 #   (b) Functions Flex Consumption     (az functionapp list-flexconsumption-locations; brokers)
 #   (c) AKS virtual nodes v2 with confidential pods (static list below)

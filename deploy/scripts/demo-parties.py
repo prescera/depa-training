@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Print the fixed Azure pilot parties as Terraform JSON variables ({"parties": [...]}).
+"""Print the fixed demo parties of the single-subscription Azure deployment as Terraform JSON variables ({"parties": [...]}).
 
-  pilot-parties.py > parties.auto.tfvars.json
+  demo-parties.py > parties.auto.tfvars.json
 
 Any scenario runs on these slots: the SDK maps a scenario's TDC onto `tdc` and its other
 dataset owners (sorted by id) onto tdp-1..tdp-4 (four is the most providers in any scenario).

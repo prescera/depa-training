@@ -27,7 +27,7 @@ variables {
   tenant_id       = "11111111-1111-1111-1111-111111111111"
   location        = "centralindia"
   region_short    = "cin"
-  name_prefix     = "pilot1"
+  name_prefix     = "demo1"
   parties = [
     { party_id = "dc-member-1", roles = ["dc-member"] },
     { party_id = "tdc", roles = ["tdc", "tdp"], compute = true, datasets = { "tdc/*" = { container_name = "datasets" } } },

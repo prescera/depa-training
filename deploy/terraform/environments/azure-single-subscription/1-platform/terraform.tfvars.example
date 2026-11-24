@@ -2,7 +2,7 @@ subscription_id = "00000000-0000-0000-0000-000000000000"
 tenant_id       = "11111111-1111-1111-1111-111111111111"
 location        = "centralindia"
 region_short    = "cin"
-name_prefix     = "pilot1"
+name_prefix     = "demo1"
 
 parties = [
   { party_id = "dc-member-1", roles = ["dc-member"] },

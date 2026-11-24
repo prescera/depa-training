@@ -66,7 +66,9 @@ to training data that was previously out of reach.
 
 See [docs/architecture.md](docs/architecture.md) for the full design,
 [docs/threat-model.md](docs/threat-model.md) for what is protected against whom, and
-[docs/data-collaboratives.md](docs/data-collaboratives.md) for the market architecture.
+[docs/data-collaboratives.md](docs/data-collaboratives.md) for the market architecture, and
+[docs/guides/identities-contracts-keys.md](docs/guides/identities-contracts-keys.md) for how parties,
+contract signing and dataset keys work in practice.
 
 ## Repositories
 
@@ -94,8 +96,8 @@ gui/             minimal web console over the SDK
 - **Local, no cloud:** [docs/guides/quickstart.md](docs/guides/quickstart.md). Runs both trust
   services in CCF sandboxes, then a full scenario (encrypt → contract → clean-room run →
   receipts → model) with a development-only virtual clean room.
-- **Azure, one click:** after a one-time setup, the **Pilot · end-to-end demo** workflow deploys a
-  complete collaborative and runs a scenario. See [docs/guides/azure-pilot.md](docs/guides/azure-pilot.md).
+- **Azure, one click:** after a one-time setup, the **End to end** workflow deploys a
+  complete collaborative and runs a scenario. See [docs/guides/azure-single-subscription.md](docs/guides/azure-single-subscription.md).
 - **Console:** `depa-console` is a minimal local web UI over the SDK, acting as one party at a
   time ([gui/README.md](gui/README.md)).
 

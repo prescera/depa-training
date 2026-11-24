@@ -1,23 +1,23 @@
-name: Pilot · build CCR releases
+name: "4 · Clean-room images: build, push to ACR, CCE policies, release manifests"
 
-# Builds and pushes CCR images to the pilot ACR, generates the CCE policies (aci-snp) and writes
-# release manifests, published as the artifact ccr-releases-<environment> for run-scenario.
+# Builds the CCR images (trainer families), pushes them to the registry created by workflow 1,
+# generates the confidential ACI (CCE) policies and writes the release manifests, published as
+# the artifact ccr-releases-<environment> for workflow 5. Needs workflow 1.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment of the pilot
+        description: GitHub environment with the Azure secrets and variables (approval gate)
         type: environment
         required: true
       version:
         description: Release version (semver)
         type: string
-        default: 2.0.0-pilot
+        default: 2.0.0-demo
       families:
         description: Trainer families (comma separated)
         type: string
         default: classic
-
   workflow_call:
     inputs:
       environment:
@@ -25,18 +25,20 @@ on:
         required: true
       version:
         type: string
-        default: 2.0.0-pilot
+        default: 2.0.0-demo
       families:
         type: string
         default: classic
+
 permissions: {}
 
 concurrency:
-  group: pilot-${{ inputs.environment }}-releases
+  group: azure-${{ inputs.environment }}-images
   cancel-in-progress: false
 
 jobs:
-  build:
+  images:
+    name: Clean-room images
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     environment: ${{ inputs.environment }}
@@ -47,15 +49,15 @@ jobs:
     env:
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
     steps:
+      - name: Free disk space for the torch/llm stacks
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Free disk space for the torch/llm stacks
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - id: pilot
-        uses: ./.github/actions/pilot-terraform
+      - id: azure
+        uses: ./.github/actions/azure-terraform
         with:
           environment: ${{ inputs.environment }}
           services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
@@ -69,14 +71,14 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Install the pinned confcom extension
         run: az extension add --name confcom --version "$(tr -d '[:space:]' < ccr/policy/confcom.version)" --yes
-      - name: Build, push, measure
+      - name: Build and push the images to ACR; generate CCE policies and release manifests
         env:
           BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PILOT: ${{ steps.pilot.outputs.pilot-dir }}
+          DIR: ${{ steps.azure.outputs.deploy-dir }}
           VERSION: ${{ inputs.version }}
           FAMILIES: ${{ inputs.families }}
         run: |
-          registry="$(terraform -chdir="${PILOT}/1-platform" output -json pilot_platform | jq -r '.registry.login_server')"
+          registry="$(terraform -chdir="${DIR}/1-platform" output -json platform | jq -r '.registry.login_server')"
           deploy/scripts/build-releases.sh --registry "${registry}" --version "${VERSION}" \
             --families "${FAMILIES}" --out-dir "${RUNNER_TEMP}/releases" --build-url "${BUILD_URL}"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

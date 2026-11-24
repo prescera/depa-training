@@ -1,6 +1,6 @@
 variable "subscription_id" {
   type        = string
-  description = "The single Azure subscription hosting the whole pilot collaborative."
+  description = "The single Azure subscription hosting the whole demo collaborative."
 }
 
 variable "tenant_id" {
@@ -25,7 +25,7 @@ variable "region_short" {
 
 variable "name_prefix" {
   type        = string
-  description = "Short prefix for every resource of this pilot (2-8 lowercase alphanumerics). A random suffix keeps globally scoped names (ledgers, storage, registry, functions) unique."
+  description = "Short prefix for every resource of this deployment (2-8 lowercase alphanumerics). A random suffix keeps globally scoped names (ledgers, storage, registry, functions) unique."
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9]{1,7}$", var.name_prefix))
@@ -43,8 +43,8 @@ variable "parties" {
   description = <<-EOT
     Parties of the collaborative; each gets its own resource group. roles ⊆ [tdp, tdc, dc-member].
     `datasets` (TDPs) are keyed by dataset_id "<party_id>/<name>", or "<party_id>/*" for one
-    container holding every dataset of that party (the fixed pilot set from
-    deploy/scripts/pilot-parties.py); `compute = true` on one TDC places the AKS + virtual nodes
+    container holding every dataset of that party (the fixed demo set from
+    deploy/scripts/demo-parties.py); `compute = true` on one TDC places the AKS + virtual nodes
     clean-room cluster in that party's group.
   EOT
 
@@ -88,7 +88,7 @@ variable "job_submitter_object_ids" {
 
 variable "registry_pusher_object_ids" {
   type        = list(string)
-  description = "Object IDs allowed to push CCR images to the pilot registry (AcrPush), e.g. the GitHub deployment service principal."
+  description = "Object IDs allowed to push CCR images to the deployment's registry (AcrPush), e.g. the GitHub deployment service principal."
   default     = []
 }
 
@@ -112,7 +112,7 @@ variable "aks_api_authorized_ip_ranges" {
 
 variable "kms_gateway_hostname" {
   type        = string
-  description = "Public DNS name for an optional KMS gateway (environments/dc/2-gateway). Not used by the pilot itself: Azure storage brokers pin the KMS JWKS, so no publicly trusted issuer endpoint is needed."
+  description = "Public DNS name for an optional KMS gateway (environments/dc/2-gateway). Not used by this deployment itself: Azure storage brokers pin the KMS JWKS, so no publicly trusted issuer endpoint is needed."
   default     = null
 }
 
@@ -124,7 +124,7 @@ variable "tags" {
 
 variable "key_vault_network_default_action" {
   type        = string
-  description = "Firewall default action of the KMS and CS Key Vaults. Allow: GitHub-hosted runners have changing egress IPs (data-plane access still requires Entra RBAC). Use Deny with operator_ip_ranges or a self-hosted runner subnet for anything beyond a pilot."
+  description = "Firewall default action of the KMS and CS Key Vaults. Allow: GitHub-hosted runners have changing egress IPs (data-plane access still requires Entra RBAC). Use Deny with operator_ip_ranges or a self-hosted runner subnet for anything beyond a demo."
   default     = "Allow"
 
   validation {

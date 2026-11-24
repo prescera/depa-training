@@ -4,7 +4,7 @@ locals {
   compute = one([for p in var.parties : p.party_id if p.compute])
   tags = merge(var.tags, {
     workload   = "depa-training"
-    deployment = "azure-pilot-${var.name_prefix}"
+    deployment = "azure-single-subscription-${var.name_prefix}"
     managed_by = "terraform"
   })
 }
@@ -40,7 +40,7 @@ resource "azurerm_log_analytics_workspace" "this" {
 }
 
 # --- Governance plane: KMS and Contract Service, each on its own ACL instance --------------------
-# Module sources are literals tracking `main`. The pilot workflows check out both service repos
+# Module sources are literals tracking `main`. The GitHub workflows check out both service repos
 # (same GitHub owner, DEPA_SERVICES_REF) and render local_override.tf.tpl to use those checkouts.
 module "kms" {
   source = "git::https://github.com/prescera/depa-training-kms-azure.git//deploy/terraform/stacks/1-core?ref=main"
@@ -110,7 +110,7 @@ module "compute" {
   enable_acr_pull                 = true
   log_analytics_workspace_id      = azurerm_log_analytics_workspace.this.id
   enable_diagnostics              = true
-  # Pilot simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
+  # Demo simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
   # Azure endpoint in the region on 443 (defence in depth only; see the module README).
   egress_https_service_tags = [
     "AzureActiveDirectory",

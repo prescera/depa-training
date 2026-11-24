@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render depa-env.yaml (schema: sdk/python/src/depa/env/schema.json) from azure-pilot outputs.
+"""Render depa-env.yaml (schema: sdk/python/src/depa/env/schema.json) from azure-single-subscription outputs.
 Invoked by render-env.sh; see there for usage."""
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def main() -> None:
         first = wildcard[0] if wildcard else next(iter(s["datasets"].values()))
         storage[party] = {
             "connector": "azure-blob",
-            # The SDK places dataset <owner>/<name> at <uri><name>/<version>/. Pilot parties hold
+            # The SDK places dataset <owner>/<name> at <uri><name>/<version>/. Demo parties hold
             # all their datasets in one container (owner wildcard grant), so <uri> is that
             # container; otherwise it is the account and each dataset has its own container.
             "uri": first["location"]["uri"] if wildcard else f"https://{s['storage_account_name']}.blob.core.windows.net/",

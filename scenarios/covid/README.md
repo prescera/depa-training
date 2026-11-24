@@ -43,7 +43,7 @@ bash prepare/prepare_all.sh --inputs /tmp/covid/inputs
 depa-train run --recipe recipe.yaml --inputs /tmp/covid/inputs --outputs /tmp/covid/out --result /tmp/covid/result.json
 ```
 
-On Azure, run **Pilot · end-to-end demo** with scenario `covid` (see
-[docs/guides/azure-pilot.md](../../docs/guides/azure-pilot.md)).
+On Azure, run the **End to end** workflow with scenario `covid` (see
+[docs/guides/azure-single-subscription.md](../../docs/guides/azure-single-subscription.md)).
 
 Verified result (CPU, about 10 s): accuracy 0.92, F1 0.86, ROC AUC 0.87, with ε 0.994 spent.

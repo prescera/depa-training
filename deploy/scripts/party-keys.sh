@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Key material for the fixed Azure pilot parties (see pilot-parties.py), kept in the GitHub
+# Key material for the fixed demo parties of the single-subscription Azure deployment (see demo-parties.py), kept in the GitHub
 # environment secret DEPA_PARTY_KEYS as base64(tar.gz) of <party_id>/{signing.jwk,hpke.jwk,party.json}.
 #
-#   party-keys.sh init DIR                          generate keys for every pilot party (depa party keygen)
+#   party-keys.sh init DIR                          generate keys for every demo party (depa party keygen)
 #   party-keys.sh pack DIR                          print base64(tar.gz) of DIR (all parties must be complete)
 #   party-keys.sh publish DIR --env ENV --repo REPO pack and store as the DEPA_PARTY_KEYS environment secret
 #   party-keys.sh unpack DIR                        restore from $DEPA_PARTY_KEYS (used by the workflows)
 set -euo pipefail
 
-# party_id|roles — must match pilot-parties.py.
+# party_id|roles — must match demo-parties.py.
 PARTIES=(
   "dc-member-1|dc-member"
   "tdc|tdc,tdp"
@@ -55,7 +55,7 @@ case "${cmd}" in
     trap 'rm -rf "${home}"' EXIT
     for entry in "${PARTIES[@]}"; do
       party="${entry%%|*}"
-      DEPA_HOME="${home}" depa party keygen --party-id "${party}" --name "Pilot ${party}" \
+      DEPA_HOME="${home}" depa party keygen --party-id "${party}" --name "Demo ${party}" \
         --roles "${entry#*|}" --no-set-default >/dev/null
       mv "${home}/keys/${party}" "${dir}/${party}"
     done

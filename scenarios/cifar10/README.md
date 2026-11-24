@@ -32,7 +32,7 @@ bash prepare/prepare_all.sh --inputs /tmp/cifar10/inputs
 depa-train run --recipe recipe.yaml --inputs /tmp/cifar10/inputs --outputs /tmp/cifar10/out --result /tmp/cifar10/result.json
 ```
 
-On Azure, run **Pilot · end-to-end demo** with scenario `cifar10`.
+On Azure, run the **End to end** workflow with scenario `cifar10`.
 
 Verified result (CPU, 2 epochs, about 10 s): accuracy 0.53, F1 0.53.
 

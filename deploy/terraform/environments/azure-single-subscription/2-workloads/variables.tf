@@ -35,7 +35,7 @@ variable "platform" {
       })
     })
   })
-  description = "Output `pilot_platform` of 1-platform (terraform output -json pilot_platform)."
+  description = "Output `platform` of 1-platform (terraform output -json platform)."
 }
 
 variable "parties" {
@@ -59,10 +59,6 @@ variable "kms_jwks_json" {
   description = "KMS OIDC JWKS pinned into every federation broker (deploy/scripts/fetch-kms-jwks.sh, after deploy-services and DC setup)."
 }
 
-variable "broker_package_path" {
-  type        = string
-  description = "Federation broker package (modules/azure/federation-broker/build-package.sh)."
-}
 
 variable "job_submitter_object_ids" {
   type        = list(string)
@@ -72,7 +68,7 @@ variable "job_submitter_object_ids" {
 
 variable "operator_object_ids" {
   type        = list(string)
-  description = "Principals that act for the parties in the pilot workflows (e.g. the GitHub deployment service principal): Storage Blob Data Contributor on TDP data accounts (encrypted dataset upload) and Storage Blob Data Reader on TDC output accounts (encrypted model download). Pilot only; real parties use their own identities."
+  description = "Principals that act for the parties in the demo workflows (e.g. the GitHub deployment service principal): Storage Blob Data Contributor on TDP data accounts (encrypted dataset upload) and Storage Blob Data Reader on TDC output accounts (encrypted model download). Demo only; real parties use their own identities."
   default     = []
 }
 

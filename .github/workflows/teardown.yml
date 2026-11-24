@@ -1,19 +1,19 @@
-name: Pilot · teardown
+name: Tear down all Azure resources
 
-# Destroys 2-workloads, then 1-platform. Key Vaults are soft-deleted (purge protection) and keep
-# their names reserved for the retention period; ledgers and storage are deleted.
+# Destroys the party resources (2-workloads), then the platform (1-platform) of the
+# single-subscription Azure deployment. Key Vaults are soft-deleted (purge protection) and keep
+# their names reserved for the retention period; ledgers, storage, AKS and the registry are deleted.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment of the pilot
+        description: GitHub environment with the Azure secrets and variables (approval gate)
         type: environment
         required: true
       confirm:
         description: Type the environment name again to confirm
         type: string
         required: true
-
   workflow_call:
     inputs:
       environment:
@@ -22,14 +22,16 @@ on:
       confirm:
         type: string
         required: true
+
 permissions: {}
 
 concurrency:
-  group: pilot-${{ inputs.environment }}
+  group: azure-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
   destroy:
+    name: Destroy
     if: inputs.confirm == inputs.environment
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -40,13 +42,13 @@ jobs:
     env:
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-      PILOT_NAME_PREFIX: ${{ vars.PILOT_NAME_PREFIX }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: pilot
-        uses: ./.github/actions/pilot-terraform
+      - id: azure
+        uses: ./.github/actions/azure-terraform
         with:
           environment: ${{ inputs.environment }}
           services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
@@ -57,18 +59,19 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Destroy 2-workloads
+      - name: "Destroy party resources: storage, SAS brokers, AKS virtual nodes release"
         env:
-          PILOT: ${{ steps.pilot.outputs.pilot-dir }}
+          DIR: ${{ steps.azure.outputs.deploy-dir }}
         run: |
           sudo az aks install-cli --only-show-errors >/dev/null
-          if terraform -chdir="${PILOT}/1-platform" output -json pilot_platform >"${RUNNER_TEMP}/platform.json" 2>/dev/null; then
-            jq '{platform: .}' "${RUNNER_TEMP}/platform.json" >"${PILOT}/2-workloads/platform.auto.tfvars.json"
-            # Placeholders: destroy does not read the package or use the JWKS.
-            jq -n '{broker_package_path: "unused.zip",
-                    kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' \
-              >"${PILOT}/2-workloads/broker.auto.tfvars.json"
-            terraform -chdir="${PILOT}/2-workloads" destroy -no-color -auto-approve
+          if terraform -chdir="${DIR}/1-platform" output -json platform >"${RUNNER_TEMP}/platform.json" 2>/dev/null; then
+            jq '{platform: .}' "${RUNNER_TEMP}/platform.json" >"${DIR}/2-workloads/platform.auto.tfvars.json"
+            # Placeholder: destroy does not use the JWKS.
+            jq -n '{kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' \
+              >"${DIR}/2-workloads/broker.auto.tfvars.json"
+            terraform -chdir="${DIR}/2-workloads" destroy -no-color -auto-approve
           fi
-      - name: Destroy 1-platform
-        run: terraform -chdir="${{ steps.pilot.outputs.pilot-dir }}/1-platform" destroy -no-color -auto-approve
+      - name: "Destroy the platform: ledgers, Key Vaults, registry, AKS, resource groups"
+        env:
+          DIR: ${{ steps.azure.outputs.deploy-dir }}
+        run: terraform -chdir="${DIR}/1-platform" destroy -no-color -auto-approve

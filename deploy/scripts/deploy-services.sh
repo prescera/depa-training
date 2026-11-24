@@ -5,8 +5,8 @@
 #
 #   deploy-services.sh --platform-json FILE --kms-repo DIR --cs-repo DIR [--out-dir DIR]
 #
-# FILE is `terraform -chdir=deploy/terraform/environments/azure-pilot/1-platform output -json
-# pilot_platform`. The caller must be an ACL Administrator of both ledgers (the identity that ran
+# FILE is `terraform -chdir=deploy/terraform/environments/azure-single-subscription/1-platform output -json
+# platform`. The caller must be an ACL Administrator of both ledgers (the identity that ran
 # Terraform, by default) and logged in with `az`. Writes <out-dir>/{kms,cs}.pem and
 # <out-dir>/services.json ({kms: {app_url, bundle_digest}, cs: {...}}).
 set -euo pipefail

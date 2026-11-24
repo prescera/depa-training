@@ -39,4 +39,4 @@ terraform.tfvars
 
 # Local environment files generated from Terraform outputs (contain key paths)
 depa-env.yaml
-pilot-keys/
+demo-keys/

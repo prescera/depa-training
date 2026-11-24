@@ -3,7 +3,7 @@ locals {
   suffix = var.platform.suffix
   tags = merge(var.tags, {
     workload   = "depa-training"
-    deployment = "azure-pilot-${var.platform.name_prefix}"
+    deployment = "azure-single-subscription-${var.platform.name_prefix}"
     managed_by = "terraform"
   })
   # Short, globally unique name stems per party (storage accounts: <= 24 lowercase alphanumerics).
@@ -24,7 +24,6 @@ module "tdp_storage" {
   oidc_issuer_url      = local.issuer
   datasets             = each.value.datasets
   broker = {
-    package_path               = var.broker_package_path
     kms_jwks_json              = var.kms_jwks_json
     host_storage_account_name  = "${local.short[each.key]}${local.suffix}f"
     log_analytics_workspace_id = var.platform.log_analytics_workspace_id
@@ -44,7 +43,6 @@ module "tdc_output_storage" {
   storage_account_name = "${local.short[each.key]}${local.suffix}o"
   oidc_issuer_url      = local.issuer
   broker = {
-    package_path               = var.broker_package_path
     kms_jwks_json              = var.kms_jwks_json
     host_storage_account_name  = "${local.short[each.key]}${local.suffix}g"
     log_analytics_workspace_id = var.platform.log_analytics_workspace_id
@@ -52,7 +50,7 @@ module "tdc_output_storage" {
   tags = merge(local.tags, { party = each.key })
 }
 
-# --- Pilot operator access (the workflows act for every party) --------------------------------
+# --- Demo operator access (the workflows act for every party) ---------------------------------
 resource "azurerm_role_assignment" "operator_dataset_upload" {
   for_each = { for pair in setproduct(keys(local.tdps), var.operator_object_ids) : "${pair[0]}/${pair[1]}" => pair }
 
@@ -79,5 +77,5 @@ module "cluster" {
   acr_pull_identity       = var.platform.compute.acr_pull_identity
   job_submitters          = [for id in var.job_submitter_object_ids : { object_id = id, kind = "User" }]
   max_concurrent_jobs     = var.max_concurrent_jobs
-  custom_tags             = { deployment = "azure-pilot-${var.platform.name_prefix}" }
+  custom_tags             = { deployment = "azure-single-subscription-${var.platform.name_prefix}" }
 }

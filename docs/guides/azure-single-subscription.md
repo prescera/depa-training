@@ -1,6 +1,6 @@
-# Azure pilot
+# Single-subscription Azure deployment
 
-The pilot deploys a whole Data Collaborative into **one Azure subscription**, with a separate
+This demo deployment puts a whole Data Collaborative into **one Azure subscription**, with a separate
 resource group per party, and runs scenarios end to end from GitHub Actions. It uses the same
 components as production. The only shortcut is that one operator holds every party's keys,
 which is acceptable for synthetic or demo data only.
@@ -8,12 +8,12 @@ which is acceptable for synthetic or demo data only.
 | Resource group | Party | Contents |
 |---|---|---|
 | DC | Data Collaborative | KMS and Contract Service (each on its own Azure Confidential Ledger), Key Vaults |
-| one per TDP | Data providers | Storage account with per-dataset containers, plus a SAS federation broker |
+| one per provider (`tdc`, `tdp-1`…`tdp-4`) | Data providers | Storage account with a `datasets` container, plus a SAS federation broker |
 | TDC | Consumer | Output storage and broker, AKS with virtual nodes v2 for confidential ACI, ACR |
 
 ## 1. One-time setup (about 15 minutes)
 
-Follow [deploy/README.md → one-time setup](../../deploy/README.md#azure-pilot-one-time-setup). It:
+Follow [deploy/README.md → one-time setup](../../deploy/README.md#single-subscription-azure-deployment-one-time-setup). It:
 
 1. registers resource providers;
 2. creates an app registration whose **federated credential** trusts only this repository's
@@ -24,34 +24,34 @@ Follow [deploy/README.md → one-time setup](../../deploy/README.md#azure-pilot-
    deployer object id, Terraform state group and account) as GitHub **environment secrets**,
    and the region, region short code, name prefix and `DEPA_SERVICES_REF` as environment
    **variables**;
-6. generates keys for the six fixed pilot parties and publishes them as the `DEPA_PARTY_KEYS`
+6. generates keys for the six fixed demo parties and publishes them as the `DEPA_PARTY_KEYS`
    secret (`deploy/scripts/party-keys.sh init` + `publish`).
 
-The pilot always has the same parties: `dc-member-1`, `tdc` (also a provider: it owns the
+The deployment always has the same parties: `dc-member-1`, `tdc` (also a provider: it owns the
 llm-sft base model) and `tdp-1` … `tdp-4`. Every scenario's own provider ids are mapped onto
 these slots, so one deployment runs any scenario.
 
 The default region is **`centralindia`** (short code `cin`). The region must offer Azure
 Confidential Ledger, Functions Flex Consumption and AKS virtual nodes v2 with confidential pods.
-**Pilot · deploy infrastructure** checks all three before it plans anything
+Workflow **1 · Platform** checks all three before it plans anything
 (`deploy/scripts/check-region.sh`), and when a region fails it lists the regions that offer all
 three. Add required reviewers to the environment to get an approval gate.
 
 ## 2. Deploy (Actions tab)
 
-One click: **Pilot · end-to-end demo** (environment, scenario, platform, optional teardown)
-runs the five steps below in order. They can also be run one by one:
+One click: **End to end: steps 1–5 for one scenario** (environment, scenario, platform, optional
+teardown). The workflows sort in run order and can also be run one by one:
 
 | Step | Workflow | Result |
 |---|---|---|
-| 1 | Pilot · deploy infrastructure, phase `1-platform` | Party resource groups, ledgers, ACR, AKS |
-| 2 | Pilot · deploy services | KMS and CS bundles on ACL, governance set up |
-| 3 | Pilot · deploy infrastructure, phase `2-workloads` | TDP storage and brokers (KMS keys pinned), TDC output storage, virtual nodes |
-| 4 | Pilot · build CCR releases | Clean-room images in ACR, CCE policies, release manifests |
-| 5 | Pilot · run scenario | Pick a scenario and the `aks` platform. Uploads the run summary and receipts. |
+| 1 | 1 · Platform: ledgers for KMS and contract service, container registry, AKS cluster (Azure) | Party resource groups, both ledgers with Key Vaults, ACR, AKS |
+| 2 | 2 · DC services: KMS and contract service apps on Azure Confidential Ledger, governance setup | Both bundles on their ledgers, governance set up |
+| 3 | 3 · Party resources: provider and consumer storage with SAS brokers, AKS virtual nodes for clean rooms | Provider storage and SAS brokers (KMS keys pinned, broker code deployed), consumer output storage, virtual nodes |
+| 4 | 4 · Clean-room images: build, push to ACR, CCE policies, release manifests | Clean-room images in ACR, CCE policies, release manifests |
+| 5 | 5 · Run scenario: dataset keys and policies → encrypt and upload data → contract signing → clean-room training → model download | One step per stage and party role; uploads the stage summaries and receipts |
 
-Re-run step 5 for any scenario; no redeployment is needed. **Pilot · teardown** removes
-everything.
+Re-run step 5 for any scenario; no redeployment is needed. **Tear down all Azure resources**
+removes everything.
 
 ## 3. Check the result
 

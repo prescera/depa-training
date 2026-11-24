@@ -3,11 +3,11 @@
 | Path | What |
 |---|---|
 | [`terraform/`](terraform) | Modules and per-role environments (multi-subscription, multi-cloud production layout). |
-| [`terraform/environments/azure-pilot`](terraform/environments/azure-pilot) | One Azure subscription, one resource group per party: DC services (KMS + CS on ACL), each TDP's storage + SAS broker, TDC output storage, TDC AKS + virtual nodes v2 cluster, ACR. |
-| [`scripts/`](scripts) | `pilot-parties.py` (the fixed pilot parties), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `render-env.sh` (Terraform outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
-| `../.github/workflows/` | `deploy-infra.yml`, `deploy-services.yml`, `build-releases.yml`, `run-scenario.yml`, `teardown.yml` (each `workflow_dispatch` + `workflow_call`, Azure login with GitHub OIDC, gated by a GitHub environment); `demo.yml` chains them end to end; `pr-demo.yml` runs it for PRs labelled `run-azure-demo`; `e2e-local.yml` is the always-on sandbox check. |
+| [`terraform/environments/azure-single-subscription`](terraform/environments/azure-single-subscription) | One Azure subscription, one resource group per party: DC services (KMS + CS on ACL), each TDP's storage + SAS broker, TDC output storage, TDC AKS + virtual nodes v2 cluster, ACR. |
+| [`scripts/`](scripts) | `demo-parties.py` (the fixed demo parties), `deploy-brokers.sh` (SAS broker code → function apps, Entra auth), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `render-env.sh` (Terraform outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
+| `../.github/workflows/` | `1-deploy-platform.yml`, `2-deploy-dc-services.yml`, `3-deploy-party-resources.yml`, `4-build-clean-room-images.yml`, `5-run-scenario.yml`, `teardown.yml` (each `workflow_dispatch` + `workflow_call`, Azure login with GitHub OIDC, gated by a GitHub environment); `end-to-end.yml` chains them; `end-to-end-pr.yml` runs it for PRs labelled `run-azure-demo`; `e2e-local.yml` is the always-on sandbox check. |
 
-## Azure pilot: one-time setup
+## Single-subscription Azure deployment: one-time setup
 
 Everything below is run once by a subscription Owner with `az` and `gh` (GitHub CLI) logged in.
 No client secret is ever created: GitHub Actions authenticates with a federated credential.
@@ -15,8 +15,8 @@ No client secret is ever created: GitHub Actions authenticates with a federated 
 ```bash
 SUB=<subscription-id>
 REPO=prescera/depa-training          # this repository; the service repos are checked out from the same owner
-ENV=pilot                             # GitHub environment name (also the state key prefix)
-LOC=centralindia                      # offers ACL, VN2 confidential pods and Flex Consumption (checked by deploy-infra preflight)
+ENV=<environment>                     # GitHub environment name (also the state key prefix), e.g. demo
+LOC=centralindia                      # offers ACL, VN2 confidential pods and Flex Consumption (checked by workflow 1)
 STATE_SA=<globally-unique-name>       # Terraform state storage account (3-24 lowercase alphanumerics)
 
 az login && az account set --subscription "$SUB"
@@ -46,7 +46,7 @@ az ad app federated-credential create --id "$APP_ID" --parameters "{
 
 # 3. Roles. Terraform creates resource groups, role assignments and one custom role definition
 #    (write-only output role), hence Contributor + User Access Administrator. Use a dedicated
-#    subscription for the pilot.
+#    subscription for this deployment.
 az role assignment create --assignee-object-id "$SP_OID" --assignee-principal-type ServicePrincipal \
   --role Contributor --scope "/subscriptions/$SUB"
 az role assignment create --assignee-object-id "$SP_OID" --assignee-principal-type ServicePrincipal \
@@ -83,60 +83,59 @@ s TFSTATE_RESOURCE_GROUP depa-training-v2-tfstate-rg
 s TFSTATE_STORAGE_ACCOUNT "$STATE_SA"
 v AZURE_LOCATION "$LOC"
 v AZURE_REGION_SHORT cin                     # 2-6 chars, used in ledger names
-v PILOT_NAME_PREFIX pilot1                   # 2-8 chars
+v NAME_PREFIX demo1                   # 2-8 chars
 v DEPA_SERVICES_REF main                     # ref of <owner>/depa-training-kms-azure and <owner>/contract-service
-# Optional repository variable for PRs labelled run-azure-demo (default: pilot):
+# Repository variable naming the environment for PRs labelled run-azure-demo (required for that workflow):
 # gh variable set DEMO_ENVIRONMENT --repo "$REPO" --body "$ENV"
 ```
 
 ### Party keys (secret `DEPA_PARTY_KEYS`)
 
-The pilot always has the same six parties, whatever scenario runs: `dc-member-1`
+The demo deployment always has the same six parties, whatever scenario runs: `dc-member-1`
 (dc-member), `tdc` (tdc + tdp: it owns the llm-sft base model) and `tdp-1` … `tdp-4` (tdp; four
 is the most providers in any scenario). The SDK maps each scenario's own provider ids onto these
 slots. The workflows act for every party, so they need all six key directories. With the SDK
 installed (`pip install ./sdk/python` from the repository root):
 
 ```bash
-deploy/scripts/party-keys.sh init ./pilot-keys                          # refuses to overwrite existing keys
-deploy/scripts/party-keys.sh publish ./pilot-keys --env "$ENV" --repo "$REPO"
+deploy/scripts/party-keys.sh init ./demo-keys                          # refuses to overwrite existing keys
+deploy/scripts/party-keys.sh publish ./demo-keys --env "$ENV" --repo "$REPO"
 ```
 
 `publish` packs into a private temporary file and only sets the secret when packing succeeded,
-so a missing or incomplete key directory can never produce an empty secret. Keep `./pilot-keys`
-somewhere safe (it is needed to re-publish) or regenerate and re-publish before a fresh pilot.
+so a missing or incomplete key directory can never produce an empty secret. Keep `./demo-keys`
+somewhere safe (it is needed to re-publish) or regenerate and re-publish before a fresh deployment.
 
-This concentrates every party's signing key in one GitHub environment: acceptable for a pilot
+This concentrates every party's signing key in one GitHub environment: acceptable for a demo
 on synthetic data only. Production parties keep their own keys and run their own steps.
 
-### Optional: GCP clean rooms (`platform = gcp` in run-scenario)
+### Optional: GCP clean rooms (`platform = gcp` in workflow 5)
 
 Deploy [`environments/tdc-gcp-cs`](terraform/environments/tdc-gcp-cs) and set `GCP_PROJECT`,
 `GCP_ZONE`, `GCP_SERVICE_ACCOUNT` (workload SA), `GCP_SUBNET`, `GCP_WORKLOAD_IDENTITY_PROVIDER`
 and `GCP_SUBMITTER_SERVICE_ACCOUNT` (a job-submitter member, impersonated via Workload
 Identity Federation from this repository) as environment variables.
 
-## Azure pilot: deploy and run (Actions tab, choose the environment each time)
+## Single-subscription Azure deployment: deploy and run (Actions tab, choose the environment each time)
 
-**One click:** *Pilot · end-to-end demo* (inputs: environment, scenario, platform, teardown)
-runs the stages below as reusable workflows (releases are built in parallel with the services
-and workloads stages; teardown runs even after a failure when selected). Label a pull request
+**One click:** *End to end: steps 1–5 for one scenario* (inputs: environment, scenario,
+platform, teardown) runs the workflows below as reusable workflows (images are built in parallel
+with steps 2–3; teardown runs even after a failure when selected). Label a pull request
 `run-azure-demo` to run it for credit-risk with teardown in the environment named by the
-repository variable `DEMO_ENVIRONMENT` (default `pilot`; same-repository PRs only). Stage by
-stage:
+repository variable `DEMO_ENVIRONMENT` (same-repository PRs only). Step by step:
 
 | # | Workflow | Inputs | Does |
 |---|---|---|---|
-| 1 | **Pilot · deploy infrastructure** | phase `1-platform`, apply ✓ | region preflight (ACL, Flex Consumption, VN2 confidential pods), party resource groups, KMS + CS ledgers (Key Vaults, member certs), ACR, AKS + virtual nodes infra, Log Analytics |
-| 2 | **Pilot · deploy services** | — | builds both bundles, `PUT /app/userDefinedEndpoints` on each ledger, `depa dc setup` (bootstrap → KMS OIDC key, members, settings) |
-| 3 | **Pilot · deploy infrastructure** | phase `2-workloads`, apply ✓ | per TDP: storage + federation broker (JWKS pinned from step 2); per TDC: output storage + broker; virtual nodes Helm release, namespace, RBAC |
-| 4 | **Pilot · build CCR releases** | version, families | images → ACR, CCE policies, release manifests (artifact `ccr-releases-<env>`) |
-| 5 | **Pilot · run scenario** | scenario, platform | `depa-env.yaml`, keys, `depa dc setup` (idempotent), `depa scenario deploy`; uploads receipts + run summary |
-| — | **Pilot · teardown** | confirm | destroys phase 2 then phase 1 |
+| 1 | **1 · Platform: ledgers for KMS and contract service, container registry, AKS cluster (Azure)** | apply | region check (ACL, Flex Consumption, VN2 confidential pods); Terraform `1-platform`: party resource groups, KMS + CS ledgers (Key Vaults, member certs), ACR, AKS, Log Analytics |
+| 2 | **2 · DC services: KMS and contract service apps on Azure Confidential Ledger, governance setup** | — | builds both bundles, `PUT /app/userDefinedEndpoints` on each ledger, `depa dc setup` (bootstrap → KMS OIDC key, members, parties, settings) |
+| 3 | **3 · Party resources: provider and consumer storage with SAS brokers, AKS virtual nodes for clean rooms** | apply | Terraform `2-workloads`: per provider (`tdc`, `tdp-1`…`tdp-4`) storage + SAS broker (KMS JWKS pinned from step 2), consumer output storage + broker, virtual nodes release, namespace, RBAC; then `deploy-brokers.sh` deploys the broker code |
+| 4 | **4 · Clean-room images: build, push to ACR, CCE policies, release manifests** | version, families | images → ACR, CCE policies, release manifests (artifact `ccr-releases-<env>`) |
+| 5 | **5 · Run scenario: dataset keys and policies → encrypt and upload data → contract signing → clean-room training → model download** | scenario, platform | `depa dc setup` (idempotent), then one step per stage (`depa scenario deploy --stage keys/data/contract/train/model`); uploads stage summaries + receipts |
+| — | **Tear down all Azure resources** | confirm | destroys `2-workloads`, then `1-platform` |
 
-Any scenario runs on the same deployment: pick it in step 5 (or in the demo).
+Any scenario runs on the same deployment: pick it in step 5 (or in *End to end*).
 
-### Why the pilot needs no public KMS gateway
+### Why no public KMS gateway is needed
 
 The KMS signs ES256 OIDC tokens. Azure Blob access goes through each TDP's
 [federation broker](terraform/modules/azure/federation-broker) (spec §10.1), which pins the KMS
@@ -149,18 +148,21 @@ the public issuer: add [`environments/dc/2-gateway`](terraform/environments/dc) 
 ### Running locally instead of from Actions
 
 ```bash
-cd deploy/terraform/environments/azure-pilot/1-platform
-cp terraform.tfvars.example terraform.tfvars            # or: ../../../../scripts/pilot-parties.py mnist > parties.auto.tfvars.json
+cd deploy/terraform/environments/azure-single-subscription/1-platform
+cp terraform.tfvars.example terraform.tfvars            # parties: ../../../../scripts/demo-parties.py > parties.auto.tfvars.json
 terraform init && terraform apply                       # DC stacks from github.com/prescera/*@main (or local_override.tf.tpl for checkouts)
-terraform output -json pilot_platform > /tmp/platform.json
+terraform output -json platform > /tmp/platform.json
 ../../../../scripts/deploy-services.sh --platform-json /tmp/platform.json --kms-repo <kms checkout> --cs-repo <cs checkout>
 # depa dc setup …, then:
 cd ../2-workloads
 jq '{platform: .}' /tmp/platform.json > platform.auto.tfvars.json
-# set broker_package_path (federation-broker/build-package.sh) and
-# kms_jwks_json ($(deploy/scripts/fetch-kms-jwks.sh <kms-ledger>)) in terraform.tfvars
+# set kms_jwks_json (output of deploy/scripts/fetch-kms-jwks.sh <kms-ledger>) in terraform.tfvars
 terraform init && terraform apply
-deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys --releases-dir ccr/releases --out depa-env.yaml
+# Broker code (Terraform creates the apps; basic-auth publishing stays disabled):
+terraform output -json workloads | jq .brokers > /tmp/brokers.json
+pkg=$(../../../modules/azure/federation-broker/build-package.sh)
+../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json /tmp/brokers.json
+deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./demo-keys --releases-dir ccr/releases --out depa-env.yaml
 ```
 
 ## Troubleshooting
@@ -170,30 +172,36 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys
   `gh api repos/$REPO/actions/oidc/customization/sub`) and add a credential with that exact
   subject plus `:environment:$ENV`.
 
-- **`DEPA_PARTY_KEYS is empty`** in *deploy services* or *run scenario*: the secret was set from
+- **`DEPA_PARTY_KEYS is empty`** in workflow 2 or 5: the secret was set from
   an empty value (e.g. an earlier `gh secret set --body "$(…)"` whose command failed). Re-publish
   it with `party-keys.sh init` (only if you have no keys yet) and `party-keys.sh publish` as
-  above. **The current `pilot` environment's secret is empty and must be re-published.**
+  above. **If your environment's secret was set before `publish` existed, it may be empty: re-publish it.**
 - **`<NAME> is empty: set the environment secret/variable`**: an Azure identifier secret or a
   region/naming variable is missing from the GitHub environment (step 6).
+- **Helm: `namespace "vn2" exists and cannot be imported into the current release`** (after an
+  earlier failed attempt that created `vn2` outside the chart): workflow 3 removes the stray
+  namespace before applying, as long as the virtualnode release is not installed. When applying
+  by hand, run `az aks command invoke -g <tdc-rg> -n <cluster> --command "kubectl delete namespace vn2"`.
+- **Broker deploy `401 Unauthorized`** from an older run: Terraform no longer deploys broker code
+  (basic-auth publishing stays disabled); workflow 3 runs `deploy-brokers.sh` with Entra auth.
 - **Region preflight fails**: the region lacks ACL, Flex Consumption or virtual nodes v2
   confidential pods; it lists the regions that offer all three. Pick one and update the variables.
 
 ## Assumptions and limits
 
 - `depa dc setup` is idempotent and approves the CCR releases found in `releases_dir`;
-  `depa --json scenario deploy` prints the run summary (uploaded with any `*receipt*` files from
-  its `--work-dir`; the work dir itself is never uploaded because it holds plaintext data)
-  (CLI owned by the SDK).
+  workflow 5 runs `depa --json scenario deploy --stage <stage>` once per stage with a shared
+  `--work-dir` and uploads each stage's summary plus any `*receipt*` files (the work dir itself is
+  never uploaded because it holds plaintext data). CLI owned by the SDK.
 - `depa-env.yaml` follows `sdk/python/src/depa/env/schema.json`: `service_cert` is a path
-  relative to the env file (`certs/kms.pem`, `certs/cs.pem`); each pilot TDP keeps all its
+  relative to the env file (`certs/kms.pem`, `certs/cs.pem`); each demo TDP keeps all its
   datasets in one `datasets` container, so `storage.<party>.uri` is that container and the
   SDK's `<uri><dataset name>/<version>/` lands there. Its broker grants `dataset:<party>/*`
   (any dataset of that owner, ciphertext only: keys are still released per dataset by the KMS).
-- Pilot only: the deployment principal gets *Storage Blob Data Contributor* on TDP data accounts
+- Demo deployment only: the deployment principal gets *Storage Blob Data Contributor* on TDP data accounts
   and *Storage Blob Data Reader* on TDC output accounts (`operator_object_ids`) because the
   workflows act for every party; clean rooms themselves only ever use broker-issued SAS.
-- Pilot only: the KMS and CS Key Vaults use firewall default action `Allow`
+- Demo deployment only: the KMS and CS Key Vaults use firewall default action `Allow`
   (`key_vault_network_default_action`), because GitHub-hosted runners have changing egress IPs
   and Terraform reads the vault certificates while refreshing state. Data-plane access still
   requires Entra RBAC. Production keeps `Deny` and runs Terraform from an allowed IP range or a

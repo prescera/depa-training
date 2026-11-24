@@ -1,14 +1,14 @@
-name: azure-pilot terraform setup
+name: "Azure single-subscription deployment: Terraform setup"
 description: >-
   Check out the DC service repositories (same GitHub owner), log in to Azure with GitHub OIDC,
-  write the pilot tfvars (fixed demo parties) and initialise both azure-pilot phases against the
+  write the tfvars (fixed demo parties) and initialise both azure-single-subscription phases against the
   remote state. The calling job needs `id-token: write`; Azure identifiers arrive as inputs from
   environment secrets, the region and name prefix from the env vars AZURE_LOCATION,
-  AZURE_REGION_SHORT and PILOT_NAME_PREFIX (environment variables).
+  AZURE_REGION_SHORT and NAME_PREFIX (environment variables).
 
 inputs:
   environment:
-    description: GitHub environment / pilot name (state key prefix)
+    description: GitHub environment name (Terraform state key prefix)
     required: true
   services-ref:
     description: Git ref of depa-training-kms-azure and contract-service
@@ -36,9 +36,9 @@ inputs:
     required: true
 
 outputs:
-  pilot-dir:
-    description: Path of deploy/terraform/environments/azure-pilot
-    value: ${{ steps.init.outputs.pilot-dir }}
+  deploy-dir:
+    description: Path of deploy/terraform/environments/azure-single-subscription
+    value: ${{ steps.init.outputs.deploy-dir }}
 
 runs:
   using: composite
@@ -70,7 +70,7 @@ runs:
     - id: init
       shell: bash
       env:
-        PILOT_ENV: ${{ inputs.environment }}
+        DEPLOY_ENV: ${{ inputs.environment }}
         ARM_CLIENT_ID: ${{ inputs.client-id }}
         ARM_TENANT_ID: ${{ inputs.tenant-id }}
         ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
@@ -81,11 +81,11 @@ runs:
       run: |
         set -euo pipefail
         for v in ARM_CLIENT_ID ARM_TENANT_ID ARM_SUBSCRIPTION_ID AKS_ADMIN_GROUP_OBJECT_ID DEPLOYER_OBJECT_ID \
-                 TFSTATE_RESOURCE_GROUP TFSTATE_STORAGE_ACCOUNT AZURE_LOCATION AZURE_REGION_SHORT PILOT_NAME_PREFIX; do
+                 TFSTATE_RESOURCE_GROUP TFSTATE_STORAGE_ACCOUNT AZURE_LOCATION AZURE_REGION_SHORT NAME_PREFIX; do
           [[ -n "${!v:-}" ]] || { echo "::error::${v} is empty: set the environment secret/variable (deploy/README.md)"; exit 1; }
         done
-        pilot="${GITHUB_WORKSPACE}/deploy/terraform/environments/azure-pilot"
-        echo "pilot-dir=${pilot}" >>"${GITHUB_OUTPUT}"
+        deploy_dir="${GITHUB_WORKSPACE}/deploy/terraform/environments/azure-single-subscription"
+        echo "deploy-dir=${deploy_dir}" >>"${GITHUB_OUTPUT}"
         {
           echo "ARM_USE_OIDC=true"
           echo "ARM_CLIENT_ID=${ARM_CLIENT_ID}"
@@ -96,48 +96,48 @@ runs:
         } >>"${GITHUB_ENV}"
 
         # Fixed demo parties (dc-member-1, tdc, tdp-1..tdp-4); any scenario maps onto them.
-        python deploy/scripts/pilot-parties.py >"${RUNNER_TEMP}/pilot-parties.json"
+        python deploy/scripts/demo-parties.py >"${RUNNER_TEMP}/demo-parties.json"
         runner_ip="$(curl -sSf https://api.ipify.org)"
         jq -n \
           --arg sub "${ARM_SUBSCRIPTION_ID}" --arg tenant "${ARM_TENANT_ID}" \
           --arg location "${AZURE_LOCATION}" --arg short "${AZURE_REGION_SHORT}" \
-          --arg prefix "${PILOT_NAME_PREFIX}" --arg group "${AKS_ADMIN_GROUP_OBJECT_ID}" \
+          --arg prefix "${NAME_PREFIX}" --arg group "${AKS_ADMIN_GROUP_OBJECT_ID}" \
           --arg deployer "${DEPLOYER_OBJECT_ID}" --arg ip "${runner_ip}/32" \
-          --slurpfile parties "${RUNNER_TEMP}/pilot-parties.json" \
+          --slurpfile parties "${RUNNER_TEMP}/demo-parties.json" \
           '{subscription_id: $sub, tenant_id: $tenant, location: $location, region_short: $short,
             name_prefix: $prefix, parties: $parties[0].parties,
             aks_admin_group_object_ids: [$group], job_submitter_object_ids: [$deployer],
             registry_pusher_object_ids: [$deployer], operator_ip_ranges: [$ip]}' \
-          >"${pilot}/1-platform/pilot.auto.tfvars.json"
+          >"${deploy_dir}/1-platform/settings.auto.tfvars.json"
         jq '{parties: .parties, job_submitter_object_ids: .job_submitter_object_ids, operator_object_ids: .job_submitter_object_ids}' \
-          "${pilot}/1-platform/pilot.auto.tfvars.json" >"${pilot}/2-workloads/pilot.auto.tfvars.json"
+          "${deploy_dir}/1-platform/settings.auto.tfvars.json" >"${deploy_dir}/2-workloads/settings.auto.tfvars.json"
 
         # Local checkouts of the service stacks instead of the pinned git sources.
         DEPA_KMS_AZURE_DIR="${GITHUB_WORKSPACE}/.deps/depa-training-kms-azure" \
         DEPA_CONTRACT_SERVICE_DIR="${GITHUB_WORKSPACE}/.deps/contract-service" \
           envsubst '${DEPA_KMS_AZURE_DIR} ${DEPA_CONTRACT_SERVICE_DIR}' \
-          <"${pilot}/1-platform/local_override.tf.tpl" >"${pilot}/1-platform/local_override.tf"
+          <"${deploy_dir}/1-platform/local_override.tf.tpl" >"${deploy_dir}/1-platform/local_override.tf"
 
         for phase in 1-platform 2-workloads; do
-          printf 'terraform {\n  backend "azurerm" {}\n}\n' >"${pilot}/${phase}/backend_override.tf"
-          terraform -chdir="${pilot}/${phase}" init -no-color \
+          printf 'terraform {\n  backend "azurerm" {}\n}\n' >"${deploy_dir}/${phase}/backend_override.tf"
+          terraform -chdir="${deploy_dir}/${phase}" init -no-color \
             -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
             -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=depa-training/${PILOT_ENV}/${phase}.tfstate" \
+            -backend-config="key=depa-training/${DEPLOY_ENV}/${phase}.tfstate" \
             -backend-config="use_azuread_auth=true" \
             -backend-config="use_oidc=true"
         done
 
-        # The pilot runs the DC Key Vaults with firewall default action Allow
+        # The demo deployment runs the DC Key Vaults with firewall default action Allow
         # (key_vault_network_default_action): GitHub-hosted runners have changing egress IPs, and
         # Terraform reads the vault certificates while refreshing state, before it could change
         # the firewall. Vaults created by earlier versions defaulted to Deny; set it through
         # the control plane, which the vault firewall does not cover (idempotent).
-        for rg in "${PILOT_NAME_PREFIX}-dc-kms-rg" "${PILOT_NAME_PREFIX}-dc-cs-rg"; do
+        for rg in "${NAME_PREFIX}-dc-kms-rg" "${NAME_PREFIX}-dc-cs-rg"; do
           [[ "$(az group exists --name "${rg}")" == "true" ]] || continue
           for kv in $(az keyvault list --resource-group "${rg}" --query "[].name" -o tsv); do
-            echo "Setting Key Vault ${kv} firewall default action to Allow (pilot)"
+            echo "Setting Key Vault ${kv} firewall default action to Allow (demo deployment)"
             az keyvault update --name "${kv}" --resource-group "${rg}" --default-action Allow --output none
           done
         done

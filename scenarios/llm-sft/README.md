@@ -39,5 +39,5 @@ depa-train run --recipe recipe.yaml --inputs /tmp/llm/inputs --outputs /tmp/llm/
 
 Verified on CPU: about 2 minutes, eval loss 0.0025 (the synthetic task is highly regular).
 
-On Azure, run **Pilot · end-to-end demo** with scenario `llm-sft`. The clean room uses the `llm`
+On Azure, run the **End to end** workflow with scenario `llm-sft`. The clean room uses the `llm`
 image family.

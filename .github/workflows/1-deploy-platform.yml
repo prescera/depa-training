@@ -1,0 +1,75 @@
+name: "1 · Platform: ledgers for KMS and contract service, container registry, AKS cluster (Azure)"
+
+# Terraform deploy/terraform/environments/azure-single-subscription/1-platform: one resource group
+# per party, the DC's KMS and contract-service ledgers (Azure Confidential Ledger) with their Key
+# Vaults, the container registry, Log Analytics and the consumer's AKS cluster. Next: workflow 2.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables (approval gate)
+        type: environment
+        required: true
+      apply:
+        description: Apply (otherwise plan only)
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      apply:
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: azure-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    name: Platform (${{ inputs.apply && 'apply' || 'plan' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: azure
+        uses: ./.github/actions/azure-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: "Region check: Confidential Ledger, Functions Flex Consumption, AKS virtual nodes v2 confidential pods"
+        run: deploy/scripts/check-region.sh "${AZURE_LOCATION}"
+      - name: Terraform plan
+        env:
+          DIR: ${{ steps.azure.outputs.deploy-dir }}/1-platform
+        run: |
+          set -o pipefail
+          terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
+          { echo "### Platform: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } \
+            >>"${GITHUB_STEP_SUMMARY}"
+      - name: Terraform apply
+        if: inputs.apply
+        env:
+          DIR: ${{ steps.azure.outputs.deploy-dir }}/1-platform
+        run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan

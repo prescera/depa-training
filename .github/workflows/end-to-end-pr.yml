@@ -1,0 +1,30 @@
+name: "End to end for a pull request (label run-azure-demo): credit-risk on Azure, then tear down"
+
+# Label a pull request `run-azure-demo` to deploy from the PR's code, run credit-risk end to end
+# and tear everything down. Same-repository PRs only (forks get no OIDC token or secrets); the
+# GitHub environment named by the repository variable DEMO_ENVIRONMENT (required) gates each
+# run with its required reviewers.
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions: {}
+
+jobs:
+  end-to-end:
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'run-azure-demo') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.DEMO_ENVIRONMENT != ''
+    uses: ./.github/workflows/end-to-end.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      actions: read
+    with:
+      environment: ${{ vars.DEMO_ENVIRONMENT }}
+      scenario: credit-risk
+      platform: aks
+      teardown: true
+    secrets: inherit

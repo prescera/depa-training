@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and push CCR images to the pilot registry, generate their CCE policies and write the
+# Build and push CCR images to the deployment's registry, generate their CCE policies and write the
 # release manifests (aci-snp + virtual-dev) for every requested family.
 #
 #   build-releases.sh --registry <login-server> --version <semver> [--families classic,torch,llm]

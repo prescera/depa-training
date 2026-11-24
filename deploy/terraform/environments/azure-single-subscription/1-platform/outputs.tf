@@ -1,4 +1,4 @@
-output "pilot_platform" {
+output "platform" {
   description = "Everything 2-workloads, render-env.sh and the workflows need (pass as the `platform` variable of 2-workloads)."
   value = {
     subscription_id = var.subscription_id

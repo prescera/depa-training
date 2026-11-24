@@ -63,5 +63,5 @@ Swap `covid` for `credit-risk`, `mnist`, `cifar10`, `brats` or `llm-sft`. Each s
 5. The TDC fetched and decrypted the model. The receipt was verified against both services and
    the CCF ledger.
 
-Next: [Azure pilot](azure-pilot.md) · [Production deployment](production.md) ·
+Next: [Single-subscription Azure deployment](azure-single-subscription.md) · [Production deployment](production.md) ·
 [Architecture](../architecture.md)
