@@ -120,3 +120,41 @@ def test_parse_dc_steps() -> None:
     with pytest.raises(ConfigError) as exc:
         parse_dc_steps(["bootstrap"])
     assert exc.value.exit_code == 2
+
+
+def test_check_scenario_preflight(tmp_path: Path) -> None:
+    import json as _json
+
+    from depa.deployment import StageError, check_scenario
+
+    env = fixed_env(tmp_path)
+    ok = check_scenario(SCENARIOS / "credit-risk", env, "local")
+    assert ok["ok"] and ok["party_map"]["bureau"] == "tdp-3"
+
+    doc = dict(env.raw)
+    doc["storage"] = {k: v for k, v in env.raw["storage"].items() if k != "tdp-3"}
+    path = tmp_path / "no-tdp3.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(StageError, match="no storage for tdp-3: run Setup Training Collaborators") as exc:
+        check_scenario(SCENARIOS / "credit-risk", load_env(path), "local")
+    assert exc.value.exit_code == 2
+    assert check_scenario(SCENARIOS / "mnist", load_env(path), "local")["ok"]  # 1 provider: tdp-1 only
+
+    doc = dict(env.raw, outputs={})
+    path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(StageError, match="no outputs location for tdc"):
+        check_scenario(SCENARIOS / "mnist", load_env(path), "local")
+
+    with pytest.raises(StageError, match=r"no compute\.aks"):
+        check_scenario(SCENARIOS / "mnist", env, "aks")
+    releases = tmp_path / "releases"
+    releases.mkdir()
+    doc = dict(
+        env.raw,
+        compute={"aks": {"subscription_id": "s", "resource_group": "r", "cluster_name": "c", "namespace": "depa"}},
+        releases_dir=str(releases),
+    )
+    path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(StageError, match="no CCR release for aci-snp with family torch"):
+        check_scenario(SCENARIOS / "mnist", load_env(path), "aks")
+    assert _json.dumps(ok)

@@ -33,6 +33,10 @@ class Connector(Protocol):
         """Stream ``size`` bytes from ``src`` to the object ``key`` (multipart/blocks when large)."""
         ...
 
+    def delete(self, key: str) -> bool:
+        """Delete one object; ``False`` when it did not exist (idempotent)."""
+        ...
+
     def uri_for(self, key: str) -> str:
         """Absolute URI of ``key`` (recorded in receipts)."""
         ...

@@ -189,5 +189,19 @@ class S3Connector:
         except (ClientError, BotoCoreError) as exc:
             raise self._error(exc, key) from exc
 
+    def delete(self, key: str) -> bool:
+        try:
+            self._client.head_object(Bucket=self._bucket, Key=self._key(key))
+        except (ClientError, BotoCoreError) as exc:
+            error = self._error(exc, key)
+            if error.code == "not_found":
+                return False
+            raise error from exc
+        try:
+            self._client.delete_object(Bucket=self._bucket, Key=self._key(key))
+        except (ClientError, BotoCoreError) as exc:
+            raise self._error(exc, key) from exc
+        return True
+
     def uri_for(self, key: str) -> str:
         return f"s3://{self._bucket}/{self._key(key)}"

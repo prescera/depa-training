@@ -70,3 +70,14 @@ def test_s3_not_found_and_limits(aws: None, monkeypatch: pytest.MonkeyPatch) -> 
     assert exc.value.code == "too_large"
     with pytest.raises(StorageError):
         conn.upload("y.bin", io.BytesIO(b"short"), 10)
+
+
+def test_s3_delete_is_idempotent(aws: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AWS_ENDPOINT_URL")
+    conn = party_connector(LOCATION)
+    conn.upload("out/m.json", io.BytesIO(b"{}"), 2)
+    assert conn.delete("out/m.json") is True
+    assert conn.delete("out/m.json") is False
+    with pytest.raises(StorageError) as exc:
+        conn.read_bytes("out/m.json", 10)
+    assert exc.value.code == "not_found"

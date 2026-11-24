@@ -68,3 +68,14 @@ def test_upload_size_mismatch_leaves_nothing(tmp_path: Path) -> None:
         conn.upload("o.bin", io.BytesIO(b"abcdef"), 5)
     assert exc.value.code == "long_source"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_file_delete_is_idempotent(tmp_path) -> None:
+    import io as _io
+
+    from depa.storage.file import FileConnector
+
+    conn = FileConnector(tmp_path)
+    conn.upload("a/b.dedf", _io.BytesIO(b"x"), 1)
+    assert conn.delete("a/b.dedf") is True
+    assert conn.delete("a/b.dedf") is False

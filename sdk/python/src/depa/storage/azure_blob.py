@@ -124,5 +124,12 @@ class AzureBlobConnector:
         )
         raise_for_status(response, what)
 
+    def delete(self, key: str) -> bool:
+        response = send(self._client, "DELETE", self._url(key), what=f"Azure DELETE {key}", headers=self._headers())
+        if response.status_code == 404:
+            return False
+        raise_for_status(response, f"Azure DELETE {key}")
+        return True
+
     def uri_for(self, key: str) -> str:
         return f"https://{self._host}/{self._container}/{quote_key(self._prefix + check_key(key))}"

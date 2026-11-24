@@ -126,5 +126,13 @@ class GcsConnector:
                     raise StorageError(f"{what}: server persisted an unexpected range", code="bad_response")
             offset = end + 1
 
+    def delete(self, key: str) -> bool:
+        url = f"https://{GCS_HOST}/storage/v1/b/{self._bucket}/o/{quote(self._name(key), safe='')}"
+        response = send(self._client, "DELETE", url, what=f"GCS DELETE {key}", headers=self._auth())
+        if response.status_code == 404:
+            return False
+        raise_for_status(response, f"GCS DELETE {key}")
+        return True
+
     def uri_for(self, key: str) -> str:
         return f"gs://{self._bucket}/{self._name(key)}"

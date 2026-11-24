@@ -87,5 +87,15 @@ class FileConnector:
             tmp.unlink(missing_ok=True)
             raise
 
+    def delete(self, key: str) -> bool:
+        try:
+            path = self._existing(key)
+        except StorageError as exc:
+            if exc.code == "not_found":
+                return False
+            raise
+        path.unlink()
+        return True
+
     def uri_for(self, key: str) -> str:
         return (self._root / check_key(key)).as_uri()

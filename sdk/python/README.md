@@ -74,6 +74,8 @@ Global options: `--json` (machine-readable output), `--home DIR`, `--env FILE`, 
 | `run list --contract ID` · `run receipt RUN` · `run verify-receipt RUN [--txid T]` | Execution Receipts (+ CCF ledger proof) |
 | `model fetch --run RUN --out DIR` · `model decrypt DIR --run RUN --out DIR` | Outputs (manifest checked against the verified receipt) |
 | `scenario deploy NAME [--env FILE] --platform aks\|gcp\|local [--parties all\|a,b] [--stage S]` | End-to-end driver (below); without `--env`, `--platform local` uses the `depa dev up` profile |
+| `scenario check NAME --env FILE --platform aks\|gcp\|local` | Read-only preflight: storage for every mapped provider, outputs for the TDC, compute and a CCR release for the platform; exit 2 names what is missing (e.g. `no storage for tdp-1: run Setup Training Collaborators`) |
+| `scenario teardown NAME --env FILE [--work-dir D] [--keep-outputs] [--output-token-env VAR]` | Remove only this scenario (idempotent): the TDC revokes its live contracts (reason `scenario teardown`) and deletes their outputs; collaborators, DC services, datasets, keys and policies stay |
 | `dev up` · `dev down [--purge]` · `dev scenario run NAME` | Local CCF sandboxes, virtual attestation |
 
 `T` is a dataset template (`scenarios/<name>/datasets/<x>.yaml`): a catalog descriptor plus
@@ -114,6 +116,17 @@ services (catalog entries, an identical usable contract, the contract's latest c
 missing prerequisite fails with exit 2 and names the stage to run. With `--json` the summary has a
 `stages` object (one entry per stage run) and `status` `stages-completed` (or `succeeded` once
 `model` ran, `awaiting-signatures` if signatures are still missing).
+
+**Teardown.** `depa scenario teardown` finds the scenario's contracts as those proposed by the
+env's TDC over exactly the scenario's (mapped) dataset versions, plus the contract recorded in
+`--work-dir/state.json`. Live ones (`draft`, `signed`, `active`) are revoked by the TDC; for every
+completed run the outputs named in its Execution Receipt are deleted from the TDC output storage
+(manifest first, then its objects; `--keep-outputs` skips this). The work-dir state's contract and
+run are cleared, and the contract stage never reuses a revoked contract, so the next
+`scenario deploy` reuses the published datasets and proposes a new contract. Summary JSON:
+`revoked`, `inactive` (already revoked/expired), `deleted_outputs`. Python API:
+`teardown_scenario(scenario, env, profile, TeardownOptions(...))`, `check_scenario(scenario, env,
+platform)`; connectors gained an idempotent `delete(key)`.
 
 **Party slots.** When a scenario's native party ids are not parties of the environment (e.g. the
 fixed pilot set `tdc`, `tdp-1`…`tdp-4`), the scenario is mapped onto the environment's parties:

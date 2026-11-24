@@ -30,5 +30,8 @@ class HttpsConnector:
     def upload(self, key: str, src: IO[bytes], size: int) -> None:
         raise StorageError("the https connector is read-only", code="read_only")
 
+    def delete(self, key: str) -> bool:
+        raise StorageError("the https connector is read-only", code="read_only")
+
     def uri_for(self, key: str) -> str:
         return self._base + quote_key(key)

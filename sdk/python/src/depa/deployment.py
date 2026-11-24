@@ -9,6 +9,7 @@ not selected with ``--parties``) are skipped and reported.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import tempfile
@@ -29,6 +30,7 @@ from depa.contract.authoring import DatasetTemplate, build_contract, load_datase
 from depa.contract.recipe import load_recipe
 from depa.contract.verify import verify_contract
 from depa.contract.yamlio import load_template
+from depa.core import dedf
 from depa.core.encoding import canonicalize, digest, dumps_pretty, loads_object
 from depa.core.ids import dataset_owner
 from depa.core.timeutil import parse_rfc3339
@@ -38,7 +40,15 @@ from depa.deploy.release import ReleaseManifest
 from depa.deploy.spec import JobSpec
 from depa.dev.stack import VIRTUAL_RELEASE_ID, govern, virtual_release
 from depa.env import DepaEnv, load_env
-from depa.errors import ConfigError, DeployCancelled, NotFoundError, ServiceError, ValidationError, VerificationError
+from depa.errors import (
+    ConfigError,
+    DeployCancelled,
+    NotFoundError,
+    ServiceError,
+    StorageError,
+    ValidationError,
+    VerificationError,
+)
 from depa.profile import Profile, generate_party
 from depa.receipts import receipt_jws_of, verify_execution_receipt
 from depa.storage.factory import federation_audience, party_connector
@@ -937,3 +947,145 @@ def deploy_scenario(
             done("model", run_id=run["run_id"], receipt_file=d.summary["result"]["receipt_file"])
     d.summary["status"] = "succeeded" if not staged or "model" in stages else "stages-completed"
     return d.summary
+
+
+# ---------------------------------------------------------------------------------------------
+# depa scenario teardown / check
+
+
+@dataclass(frozen=True)
+class TeardownOptions:
+    work_dir: Path | None = None
+    keep_outputs: bool = False
+    output_token: str | None = None
+    parties: frozenset[str] | None = None
+
+
+TEARDOWN_REASON = "scenario teardown"
+
+
+def scenario_contracts(d: _Deployer, templates: Sequence[DatasetTemplate]) -> list[dict[str, Any]]:
+    """CS records of this scenario's contracts: proposed by the env's TDC over exactly the scenario's
+    (mapped) dataset versions, plus any contract recorded in the work dir state."""
+    expected = {(t.dataset_id, t.version) for t in templates}
+    listing = d.cs.list_contracts(d.tdc)
+    items = listing.get("contracts", []) if isinstance(listing, dict) else listing
+    records: dict[str, dict[str, Any]] = {}
+    for item in items or []:
+        record = item if "contract" in item else d.cs.get_contract(str(item.get("contract_id")))
+        contract = record.get("contract", {})
+        datasets = {(x.get("dataset_id"), x.get("version")) for x in contract.get("datasets", [])}
+        if contract.get("parties", {}).get("tdc") == d.tdc and datasets == expected:
+            records[str(contract["contract_id"])] = record
+    recorded = d.state.get("contract_id")
+    if recorded and str(recorded) not in records:
+        with contextlib.suppress(NotFoundError):
+            records[str(recorded)] = d.cs.get_contract(str(recorded))
+    return [records[k] for k in sorted(records)]
+
+
+def teardown_scenario(
+    scenario: Path, env: DepaEnv, profile: Profile, opts: TeardownOptions, log: Log = print
+) -> dict[str, Any]:
+    """Remove one scenario's runs from the collaboration, keeping collaborators and DC services:
+    the TDC revokes the scenario's live contracts and (unless ``keep_outputs``) deletes their outputs.
+    Datasets, keys and policies stay, so a re-run reuses them and proposes a new contract. Idempotent."""
+    d = _Deployer(
+        scenario, env, profile, DeployOptions(platform="local", work_dir=opts.work_dir, parties=opts.parties), log
+    )
+    templates = [d.dataset_template(p) for p in sorted((scenario / "datasets").glob("*.yaml"))]
+    summary: dict[str, Any] = {
+        "scenario": scenario.name,
+        "party_map": d.party_map,
+        "revoked": [],
+        "inactive": [],
+        "deleted_outputs": [],
+        "skipped": [],
+    }
+    if not d.acts_for(d.tdc):
+        raise ConfigError(f"teardown is performed by the TDC: keys for {d.tdc} are not held/selected")
+    signer = profile.signer(d.tdc)
+    for record in scenario_contracts(d, templates):
+        contract = record["contract"]
+        contract_id = str(contract["contract_id"])
+        if record.get("state") in ("draft", "signed", "active"):
+            d.cs.revoke_contract(signer, contract_id, TEARDOWN_REASON)
+            summary["revoked"].append(contract_id)
+            log(f"contract {contract_id} revoked")
+        else:
+            summary["inactive"].append({"contract_id": contract_id, "state": record.get("state")})
+        if opts.keep_outputs:
+            continue
+        for run in d.cs.list_runs(contract_id):
+            full = d.cs.get_run(str(run["run_id"])) if "receipt" not in run else run
+            receipt = full.get("receipt") if isinstance(full.get("receipt"), dict) else None
+            for entry in (receipt or {}).get("outputs", []):
+                deleted = _delete_output(contract["output"]["location"], entry, opts.output_token)
+                if deleted:
+                    summary["deleted_outputs"].append(
+                        {
+                            "contract_id": contract_id,
+                            "run_id": full["run_id"],
+                            "output": entry["name"],
+                            "objects": deleted,
+                        }
+                    )
+                    log(f"deleted {deleted} objects of {contract_id}/{full['run_id']}/{entry['name']}")
+    d.state.pop("contract_id", None)
+    d.state.pop("run_id", None)
+    if d.state_path.exists():
+        d.save_state()
+    return summary
+
+
+def _delete_output(location: Mapping[str, Any], entry: Mapping[str, Any], token: str | None) -> int:
+    """Delete one output (manifest first: readers treat it as the commit marker). Idempotent."""
+    base = {k: v for k, v in location.items() if k != "federation"}
+    prefix_uri = str(entry.get("location", ""))
+    if not prefix_uri.startswith(str(base["uri"])):
+        raise VerificationError("receipt output location is outside the contract output location", code="bad_location")
+    connector = party_connector(dict(base, uri=prefix_uri), access_token=token)
+    try:
+        manifest = dedf.parse_manifest(
+            loads_object(connector.read_bytes(dedf.MANIFEST_NAME, dedf.MAX_MANIFEST_BYTES)), output=True
+        )
+    except StorageError as exc:
+        if exc.code == "not_found":
+            return 0
+        raise
+    count = int(connector.delete(dedf.MANIFEST_NAME))
+    for f in manifest.files:
+        count += int(connector.delete(dedf.object_key(f.path)))
+    count += int(connector.delete(dedf.MANIFEST_JWS_NAME))
+    return count
+
+
+SETUP_HINT = "run Setup Training Collaborators"
+
+
+def check_scenario(scenario: Path, env: DepaEnv, platform: str) -> dict[str, Any]:
+    """Read-only preflight for ``scenario deploy``: storage for every mapped provider, outputs for the
+    TDC, compute and a CCR release for the platform. Raises ``StageError`` (exit 2) naming what is missing."""
+    if platform not in PLATFORM_IDS:
+        raise ConfigError(f"unknown platform {platform}")
+    native = scenario_parties(scenario, {**os.environ, "DEPA_KMS_URL": str(env.service("kms")["url"])})
+    native_tdc = next(p for p, roles in native.items() if "tdc" in roles)
+    party_map = compute_party_map([p for p, r in native.items() if "tdp" in r], native_tdc, env)
+    storage, outputs = env.raw.get("storage") or {}, env.raw.get("outputs") or {}
+    for native_id, roles in sorted(native.items()):
+        party = party_map[native_id]
+        if "tdp" in roles and party not in storage:
+            raise StageError(f"no storage for {party}: {SETUP_HINT}")
+    tdc = party_map[native_tdc]
+    if tdc not in outputs:
+        raise StageError(f"no outputs location for {tdc}: {SETUP_HINT}")
+    platform_id = PLATFORM_IDS[platform]
+    if platform in ("aks", "gcp"):
+        if not (env.raw.get("compute") or {}).get(platform):
+            raise StageError(f"no compute.{platform} in the environment: deploy the {platform} infrastructure")
+        family = str(load_recipe(scenario / "recipe.yaml").get("family"))
+        if not [m for m in env.releases() if m.platform == platform_id and family in m.families]:
+            raise StageError(
+                f"no CCR release for {platform_id} with family {family} in releases_dir: run Build CCR releases"
+            )
+    return {"ok": True, "scenario": scenario.name, "platform": platform_id, "party_map": party_map}

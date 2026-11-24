@@ -9,7 +9,16 @@ from typing import Annotated
 import typer
 
 from depa.cli.common import STATE, emit, fail, handle_errors, read_env_secret
-from depa.deployment import DeployOptions, dc_setup, deploy_scenario, environment_from_profile, parse_stages
+from depa.deployment import (
+    DeployOptions,
+    TeardownOptions,
+    check_scenario,
+    dc_setup,
+    deploy_scenario,
+    environment_from_profile,
+    parse_stages,
+    teardown_scenario,
+)
 from depa.env import load_env
 from depa.profile import depa_home
 
@@ -82,3 +91,55 @@ def deploy(
     )
     summary = deploy_scenario(directory, env, profile, opts, log=log)
     emit(summary)
+
+
+def _scenario_dir(name: str, scenarios_root: Path) -> Path:
+    directory = Path(name) if Path(name).is_dir() else scenarios_root / name
+    if not (directory / "contract.yaml").exists():
+        raise fail(f"{directory} is not a scenario (no contract.yaml)", 2)
+    return directory
+
+
+@app.command("teardown")
+@handle_errors
+def teardown(
+    name: Annotated[str, typer.Argument(help="Scenario name (scenarios/<name>) or a path")],
+    env_file: Annotated[Path | None, typer.Option("--env", help="depa-env.yaml (or the global --env)")] = None,
+    scenarios_root: Annotated[Path, typer.Option(help="Directory containing the scenarios")] = Path("scenarios"),
+    work_dir: Annotated[Path | None, typer.Option(help="Deploy work dir (its state.json is cleared)")] = None,
+    keep_outputs: Annotated[bool, typer.Option(help="Keep the encrypted outputs in the TDC storage")] = False,
+    output_token_env: Annotated[
+        str | None, typer.Option(help="Env var with a bearer token for the TDC output storage")
+    ] = None,
+) -> None:
+    """Remove only this scenario (idempotent): the TDC revokes its live contracts and deletes their outputs.
+    Collaborators, DC services, datasets, keys and policies stay; a re-run proposes a new contract."""
+    path = env_file or STATE.env
+    if path is None:
+        raise fail("--env depa-env.yaml is required", 2)
+    env = load_env(path)
+    summary = teardown_scenario(
+        _scenario_dir(name, scenarios_root),
+        env,
+        env.profile(STATE.home or depa_home()),
+        TeardownOptions(work_dir=work_dir, keep_outputs=keep_outputs, output_token=read_env_secret(output_token_env)),
+        log=lambda m: sys.stderr.write(f"[teardown] {m}\n"),
+    )
+    emit(summary)
+
+
+@app.command("check")
+@handle_errors
+def check(
+    name: Annotated[str, typer.Argument(help="Scenario name (scenarios/<name>) or a path")],
+    env_file: Annotated[Path | None, typer.Option("--env", help="depa-env.yaml (or the global --env)")] = None,
+    platform: Annotated[str, typer.Option(help="aks | gcp | local")] = "aks",
+    scenarios_root: Annotated[Path, typer.Option(help="Directory containing the scenarios")] = Path("scenarios"),
+) -> None:
+    """Read-only preflight: storage for every mapped provider, outputs for the TDC, compute and a CCR
+    release for the platform. Exit 2 names the missing collaborator or artefact."""
+    path = env_file or STATE.env
+    if path is None:
+        raise fail("--env depa-env.yaml is required", 2)
+    result = check_scenario(_scenario_dir(name, scenarios_root), load_env(path), platform)
+    emit(result, f"{name} on {result['platform']}: ready; parties {result['party_map']}")

@@ -397,3 +397,17 @@ def test_gcs_federation_with_service_account_impersonation() -> None:
     assert b"devstorage.read_only" in iam.calls.last.request.content
     assert conn.read_bytes("manifest.json", 10) == b"{}"
     assert get.calls.last.request.headers["authorization"] == "Bearer sa-token"
+
+
+@respx.mock
+def test_azure_and_gcs_delete() -> None:
+    from depa.storage.azure_blob import AzureBlobConnector
+
+    az = AzureBlobConnector(account_host="acct01.blob.core.windows.net", container="out", prefix="c/", token="t")
+    respx.delete("https://acct01.blob.core.windows.net/out/c/m.json").mock(return_value=httpx.Response(202))
+    respx.delete("https://acct01.blob.core.windows.net/out/c/gone.json").mock(return_value=httpx.Response(404))
+    assert az.delete("m.json") is True and az.delete("gone.json") is False
+    gcs = GcsConnector(bucket="bkt", prefix="p/", token="t")
+    respx.delete("https://storage.googleapis.com/storage/v1/b/bkt/o/p%2Fm.json").mock(return_value=httpx.Response(204))
+    respx.delete("https://storage.googleapis.com/storage/v1/b/bkt/o/p%2Fx").mock(return_value=httpx.Response(404))
+    assert gcs.delete("m.json") is True and gcs.delete("x") is False
