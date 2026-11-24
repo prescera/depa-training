@@ -93,6 +93,22 @@ jobs:
           trainer-stack-for: ""
           kubelogin: "true"
           depa-version: ${{ inputs.depa_version }}
+      - name: Cluster credentials
+        if: inputs.platform == 'aks'
+        env:
+          ENV_FILE: ${{ steps.cli.outputs.env-file }}
+        run: |
+          # kubeconfig for the CCR provider's cluster (local accounts are disabled: Entra ID via
+          # kubelogin, reusing the workflow's Azure CLI login).
+          read -r rg cluster < <(python - "${ENV_FILE}" <<'PY'
+          import sys, yaml
+          aks = yaml.safe_load(open(sys.argv[1]))["compute"]["aks"]
+          print(aks["resource_group"], aks["cluster_name"])
+          PY
+          )
+          az aks get-credentials --resource-group "${rg}" --name "${cluster}" --overwrite-existing --only-show-errors
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl auth can-i create jobs --namespace "$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["compute"]["aks"]["namespace"])' "${ENV_FILE}")"
       - name: Model Training in CCR
         env:
           ENV_FILE: ${{ steps.cli.outputs.env-file }}
