@@ -62,7 +62,7 @@ output "kubelet_identity_principal_id" {
 
 output "acr_pull_identity" {
   description = "Pull identity for the private ACR ({id, principal_id}), or null."
-  value = var.acr_id == null ? null : {
+  value = !var.enable_acr_pull ? null : {
     id           = azurerm_user_assigned_identity.acr_pull[0].id
     principal_id = azurerm_user_assigned_identity.acr_pull[0].principal_id
   }

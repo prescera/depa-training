@@ -124,7 +124,14 @@ resource "azurerm_log_analytics_workspace" "this" {
 
 # Control-plane audit trail: who submitted / deleted clean-room jobs, and Entra authn decisions.
 resource "azurerm_monitor_diagnostic_setting" "aks" {
-  count = var.create_log_analytics_workspace || var.log_analytics_workspace_id != null ? 1 : 0
+  count = var.create_log_analytics_workspace || var.enable_diagnostics ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = var.create_log_analytics_workspace || var.log_analytics_workspace_id != null
+      error_message = "enable_diagnostics requires log_analytics_workspace_id (or create_log_analytics_workspace)."
+    }
+  }
 
   name                           = "${var.name_prefix}-ccr-aks-audit"
   target_resource_id             = azurerm_kubernetes_cluster.this.id

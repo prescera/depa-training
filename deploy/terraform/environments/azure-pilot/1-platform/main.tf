@@ -105,7 +105,9 @@ module "compute" {
   job_submitters                  = [for id in var.job_submitter_object_ids : { object_id = id, kind = "User" }]
   api_server_authorized_ip_ranges = var.aks_api_authorized_ip_ranges
   acr_id                          = azurerm_container_registry.this.id
+  enable_acr_pull                 = true
   log_analytics_workspace_id      = azurerm_log_analytics_workspace.this.id
+  enable_diagnostics              = true
   # Pilot simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
   # Azure endpoint in the region on 443 (defence in depth only; see the module README).
   egress_https_service_tags = [

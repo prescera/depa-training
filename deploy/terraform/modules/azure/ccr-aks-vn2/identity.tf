@@ -46,7 +46,7 @@ resource "azurerm_role_assignment" "kubelet_aci_subnet" {
 
 # Optional private-registry pull identity attached to clean-room container groups.
 resource "azurerm_user_assigned_identity" "acr_pull" {
-  count = var.acr_id != null ? 1 : 0
+  count = var.enable_acr_pull ? 1 : 0
 
   name                = "${var.name_prefix}-ccr-acrpull-mi"
   location            = var.location
@@ -55,7 +55,14 @@ resource "azurerm_user_assigned_identity" "acr_pull" {
 }
 
 resource "azurerm_role_assignment" "acr_pull" {
-  count = var.acr_id != null ? 1 : 0
+  count = var.enable_acr_pull ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = var.acr_id != null
+      error_message = "enable_acr_pull requires acr_id."
+    }
+  }
 
   scope                = var.acr_id
   role_definition_name = "AcrPull"
@@ -64,7 +71,7 @@ resource "azurerm_role_assignment" "acr_pull" {
 }
 
 resource "azurerm_role_assignment" "kubelet_acr_pull_operator" {
-  count = var.acr_id != null ? 1 : 0
+  count = var.enable_acr_pull ? 1 : 0
 
   scope                = azurerm_user_assigned_identity.acr_pull[0].id
   role_definition_name = "Managed Identity Operator"

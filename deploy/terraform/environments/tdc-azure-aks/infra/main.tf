@@ -8,6 +8,7 @@ module "compute" {
   api_server_authorized_ip_ranges = var.api_server_authorized_ip_ranges
   egress_https_destination_cidrs  = var.egress_https_destination_cidrs
   acr_id                          = var.acr_id
+  enable_acr_pull                 = var.acr_id != null
   create_log_analytics_workspace  = var.create_log_analytics_workspace
   tags                            = merge(var.tags, { party = var.party_id })
 }

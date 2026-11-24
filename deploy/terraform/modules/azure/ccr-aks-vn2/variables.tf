@@ -211,14 +211,26 @@ variable "job_submitters" {
 
 variable "acr_id" {
   type        = string
-  description = "Resource ID of a private ACR holding the CCR images. When set, a dedicated pull identity with AcrPull is created and handed to virtual nodes (acrTrustedAccess). null for public registries."
+  description = "Resource ID of a private ACR holding the CCR images. With enable_acr_pull, a dedicated pull identity with AcrPull is created and handed to virtual nodes (acrTrustedAccess). null for public registries."
   default     = null
 }
 
 variable "log_analytics_workspace_id" {
   type        = string
-  description = "Existing Log Analytics workspace for AKS control-plane audit logs. Ignored when create_log_analytics_workspace is true. null disables diagnostics."
+  description = "Existing Log Analytics workspace for AKS control-plane audit logs. Ignored when create_log_analytics_workspace is true; used when enable_diagnostics is true."
   default     = null
+}
+
+variable "enable_acr_pull" {
+  type        = bool
+  description = "Create the private-registry pull identity for acr_id. A separate switch because count cannot depend on acr_id when the registry is created in the same apply."
+  default     = false
+}
+
+variable "enable_diagnostics" {
+  type        = bool
+  description = "Send AKS control-plane audit logs to log_analytics_workspace_id (implied by create_log_analytics_workspace). A separate switch for the same reason as enable_acr_pull."
+  default     = false
 }
 
 variable "create_log_analytics_workspace" {
