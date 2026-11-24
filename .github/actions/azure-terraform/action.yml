@@ -1,18 +1,28 @@
 name: "Azure single-subscription deployment: Terraform setup"
 description: >-
-  Check out the DC service repositories (same GitHub owner), log in to Azure with GitHub OIDC,
-  write the tfvars (fixed demo parties) and initialise both azure-single-subscription phases against the
-  remote state. The calling job needs `id-token: write`; Azure identifiers arrive as inputs from
-  environment secrets, the region and name prefix from the env vars AZURE_LOCATION,
-  AZURE_REGION_SHORT and NAME_PREFIX (environment variables).
+  Log in to Azure with GitHub OIDC and initialise one component root of
+  deploy/terraform/environments/azure-single-subscription against its remote state
+  depa-training/<environment>/<component>[-<party>].tfstate, with the component's tfvars written
+  from the environment's secrets and variables. kms and contract-service also check out their
+  service repository (same GitHub owner, services-ref) and use it instead of the pinned git source.
+  The calling job needs `id-token: write`; AZURE_LOCATION, AZURE_REGION_SHORT and NAME_PREFIX come
+  from the job environment.
 
 inputs:
   environment:
     description: GitHub environment name (Terraform state key prefix)
     required: true
+  component:
+    description: kms | contract-service | registry | data-provider | data-consumer | ccr-provider-cluster | ccr-provider-config
+    required: true
+  party:
+    description: Data provider slot (tdp-1..tdp-4) for component data-provider
+    required: false
+    default: ""
   services-ref:
     description: Git ref of depa-training-kms-azure and contract-service
-    required: true
+    required: false
+    default: main
   client-id:
     description: secrets.AZURE_CLIENT_ID
     required: true
@@ -36,20 +46,25 @@ inputs:
     required: true
 
 outputs:
-  deploy-dir:
-    description: Path of deploy/terraform/environments/azure-single-subscription
-    value: ${{ steps.init.outputs.deploy-dir }}
+  dir:
+    description: Path of the initialised component root
+    value: ${{ steps.init.outputs.dir }}
+  state-exists:
+    description: '"true" when the component already has state'
+    value: ${{ steps.init.outputs.state-exists }}
 
 runs:
   using: composite
   steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      if: inputs.component == 'kms'
       with:
         repository: ${{ github.repository_owner }}/depa-training-kms-azure
         ref: ${{ inputs.services-ref }}
         path: .deps/depa-training-kms-azure
         persist-credentials: false
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      if: inputs.component == 'contract-service'
       with:
         repository: ${{ github.repository_owner }}/contract-service
         ref: ${{ inputs.services-ref }}
@@ -59,9 +74,6 @@ runs:
       with:
         terraform_version: "1.16.5"
         terraform_wrapper: false
-    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: "3.12"
     - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
       with:
         client-id: ${{ inputs.client-id }}
@@ -71,6 +83,8 @@ runs:
       shell: bash
       env:
         DEPLOY_ENV: ${{ inputs.environment }}
+        COMPONENT: ${{ inputs.component }}
+        PARTY: ${{ inputs.party }}
         ARM_CLIENT_ID: ${{ inputs.client-id }}
         ARM_TENANT_ID: ${{ inputs.tenant-id }}
         ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
@@ -84,8 +98,14 @@ runs:
                  TFSTATE_RESOURCE_GROUP TFSTATE_STORAGE_ACCOUNT AZURE_LOCATION AZURE_REGION_SHORT NAME_PREFIX; do
           [[ -n "${!v:-}" ]] || { echo "::error::${v} is empty: set the environment secret/variable (deploy/README.md)"; exit 1; }
         done
-        deploy_dir="${GITHUB_WORKSPACE}/deploy/terraform/environments/azure-single-subscription"
-        echo "deploy-dir=${deploy_dir}" >>"${GITHUB_OUTPUT}"
+        dir="${GITHUB_WORKSPACE}/deploy/terraform/environments/azure-single-subscription/${COMPONENT}"
+        [[ -d "${dir}" ]] || { echo "::error::unknown component ${COMPONENT}"; exit 1; }
+        key="${COMPONENT}"
+        if [[ "${COMPONENT}" == data-provider ]]; then
+          [[ "${PARTY}" =~ ^tdp-[1-4]$ ]] || { echo "::error::party must be tdp-1..tdp-4"; exit 1; }
+          key="data-provider-${PARTY}"
+        fi
+        echo "dir=${dir}" >>"${GITHUB_OUTPUT}"
         {
           echo "ARM_USE_OIDC=true"
           echo "ARM_CLIENT_ID=${ARM_CLIENT_ID}"
@@ -95,49 +115,50 @@ runs:
           echo "TF_INPUT=0"
         } >>"${GITHUB_ENV}"
 
-        # Fixed demo parties (dc-member-1, tdc, tdp-1..tdp-4); any scenario maps onto them.
-        python deploy/scripts/demo-parties.py >"${RUNNER_TEMP}/demo-parties.json"
-        runner_ip="$(curl -sSf https://api.ipify.org)"
-        jq -n \
-          --arg sub "${ARM_SUBSCRIPTION_ID}" --arg tenant "${ARM_TENANT_ID}" \
-          --arg location "${AZURE_LOCATION}" --arg short "${AZURE_REGION_SHORT}" \
-          --arg prefix "${NAME_PREFIX}" --arg group "${AKS_ADMIN_GROUP_OBJECT_ID}" \
-          --arg deployer "${DEPLOYER_OBJECT_ID}" --arg ip "${runner_ip}/32" \
-          --slurpfile parties "${RUNNER_TEMP}/demo-parties.json" \
-          '{subscription_id: $sub, tenant_id: $tenant, location: $location, region_short: $short,
-            name_prefix: $prefix, parties: $parties[0].parties,
-            aks_admin_group_object_ids: [$group], job_submitter_object_ids: [$deployer],
-            registry_pusher_object_ids: [$deployer], operator_ip_ranges: [$ip]}' \
-          >"${deploy_dir}/1-platform/settings.auto.tfvars.json"
-        jq '{parties: .parties, job_submitter_object_ids: .job_submitter_object_ids, operator_object_ids: .job_submitter_object_ids}' \
-          "${deploy_dir}/1-platform/settings.auto.tfvars.json" >"${deploy_dir}/2-workloads/settings.auto.tfvars.json"
+        # Component tfvars: common settings plus what this root declares.
+        state_backend="$(jq -n --arg rg "${TFSTATE_RESOURCE_GROUP}" --arg sa "${TFSTATE_STORAGE_ACCOUNT}" --arg env "${DEPLOY_ENV}" \
+          '{resource_group_name: $rg, storage_account_name: $sa, container_name: "tfstate", environment: $env}')"
+        common="$(jq -n --arg sub "${ARM_SUBSCRIPTION_ID}" --arg prefix "${NAME_PREFIX}" '{subscription_id: $sub, name_prefix: $prefix}')"
+        location="$(jq -n --arg l "${AZURE_LOCATION}" '{location: $l}')"
+        case "${COMPONENT}" in
+          kms|contract-service)
+            runner_ip="$(curl -sSf https://api.ipify.org)"
+            extra="$(jq -n --arg t "${ARM_TENANT_ID}" --arg s "${AZURE_REGION_SHORT}" --arg ip "${runner_ip}/32" \
+              '{tenant_id: $t, region_short: $s, operator_ip_ranges: [$ip]}' | jq ". + ${location}")" ;;
+          registry)
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" '{registry_pusher_object_ids: [$d]}' | jq ". + ${location}")" ;;
+          data-provider)
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg p "${PARTY}" --argjson sb "${state_backend}" \
+              '{party_id: $p, operator_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+          data-consumer)
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --argjson sb "${state_backend}" \
+              '{operator_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+          ccr-provider-cluster)
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --arg g "${AKS_ADMIN_GROUP_OBJECT_ID}" --argjson sb "${state_backend}" \
+              '{aks_admin_group_object_ids: [$g], job_submitter_object_ids: [$d], state_backend: $sb}' | jq ". + ${location}")" ;;
+          ccr-provider-config)
+            extra="$(jq -n --arg d "${DEPLOYER_OBJECT_ID}" --argjson sb "${state_backend}" \
+              '{job_submitter_object_ids: [$d], state_backend: $sb}')" ;;
+        esac
+        jq -n --argjson a "${common}" --argjson b "${extra}" '$a + $b' >"${dir}/settings.auto.tfvars.json"
 
-        # Local checkouts of the service stacks instead of the pinned git sources.
-        DEPA_KMS_AZURE_DIR="${GITHUB_WORKSPACE}/.deps/depa-training-kms-azure" \
-        DEPA_CONTRACT_SERVICE_DIR="${GITHUB_WORKSPACE}/.deps/contract-service" \
-          envsubst '${DEPA_KMS_AZURE_DIR} ${DEPA_CONTRACT_SERVICE_DIR}' \
-          <"${deploy_dir}/1-platform/local_override.tf.tpl" >"${deploy_dir}/1-platform/local_override.tf"
+        case "${COMPONENT}" in
+          kms) export DEPA_KMS_AZURE_DIR="${GITHUB_WORKSPACE}/.deps/depa-training-kms-azure" ;;
+          contract-service) export DEPA_CONTRACT_SERVICE_DIR="${GITHUB_WORKSPACE}/.deps/contract-service" ;;
+        esac
+        if [[ -f "${dir}/local_override.tf.tpl" ]]; then
+          envsubst '${DEPA_KMS_AZURE_DIR} ${DEPA_CONTRACT_SERVICE_DIR}' <"${dir}/local_override.tf.tpl" >"${dir}/local_override.tf"
+        fi
 
-        for phase in 1-platform 2-workloads; do
-          printf 'terraform {\n  backend "azurerm" {}\n}\n' >"${deploy_dir}/${phase}/backend_override.tf"
-          terraform -chdir="${deploy_dir}/${phase}" init -no-color \
-            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
-            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=depa-training/${DEPLOY_ENV}/${phase}.tfstate" \
-            -backend-config="use_azuread_auth=true" \
-            -backend-config="use_oidc=true"
-        done
-
-        # The demo deployment runs the DC Key Vaults with firewall default action Allow
-        # (key_vault_network_default_action): GitHub-hosted runners have changing egress IPs, and
-        # Terraform reads the vault certificates while refreshing state, before it could change
-        # the firewall. Vaults created by earlier versions defaulted to Deny; set it through
-        # the control plane, which the vault firewall does not cover (idempotent).
-        for rg in "${NAME_PREFIX}-dc-kms-rg" "${NAME_PREFIX}-dc-cs-rg"; do
-          [[ "$(az group exists --name "${rg}")" == "true" ]] || continue
-          for kv in $(az keyvault list --resource-group "${rg}" --query "[].name" -o tsv); do
-            echo "Setting Key Vault ${kv} firewall default action to Allow (demo deployment)"
-            az keyvault update --name "${kv}" --resource-group "${rg}" --default-action Allow --output none
-          done
-        done
+        state_key="depa-training/${DEPLOY_ENV}/${key}.tfstate"
+        exists="$(az storage blob exists --auth-mode login --account-name "${TFSTATE_STORAGE_ACCOUNT}" \
+          --container-name tfstate --name "${state_key}" --query exists -o tsv)"
+        echo "state-exists=${exists}" >>"${GITHUB_OUTPUT}"
+        printf 'terraform {\n  backend "azurerm" {}\n}\n' >"${dir}/backend_override.tf"
+        terraform -chdir="${dir}" init -no-color \
+          -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+          -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=${state_key}" \
+          -backend-config="use_azuread_auth=true" \
+          -backend-config="use_oidc=true"

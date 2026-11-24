@@ -3,9 +3,9 @@
 | Path | What |
 |---|---|
 | [`terraform/`](terraform) | Modules and per-role environments (multi-subscription, multi-cloud production layout). |
-| [`terraform/environments/azure-single-subscription`](terraform/environments/azure-single-subscription) | One Azure subscription, one resource group per party: DC services (KMS + CS on ACL), each TDP's storage + SAS broker, TDC output storage, TDC AKS + virtual nodes v2 cluster, ACR. |
-| [`scripts/`](scripts) | `demo-parties.py` (the fixed demo parties), `deploy-brokers.sh` (SAS broker code → function apps, Entra auth), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `render-env.sh` (Terraform outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
-| `../.github/workflows/` | **Set up collaborative** (`setup-collaborative.yml`), **Set up collaborators** (`setup-collaborators.yml`), **Run scenario** (`run-scenario.yml`), **Tear down** (`teardown.yml`), each `workflow_dispatch` + `workflow_call`, Azure login with GitHub OIDC, gated by a GitHub environment; **End-to-end demo** (`end-to-end.yml`) chains them; **End-to-end demo (PR)** runs it for PRs labelled `run-azure-demo`; **Local end-to-end** is the always-on sandbox check. |
+| [`terraform/environments/azure-single-subscription`](terraform/environments/azure-single-subscription) | One Azure subscription, one resource group per party, one Terraform root and state per component: `kms`, `contract-service`, `registry`, `data-provider` (×4), `data-consumer`, `ccr-provider-cluster`, `ccr-provider-config`. |
+| [`scripts/`](scripts) | `demo-parties.py` (the fixed demo parties), `deploy-brokers.sh` (SAS broker code → function apps, Entra auth), `deploy-services.sh` (KMS/CS bundles → ACL), `fetch-kms-jwks.sh` (KMS JWKS to pin in brokers), `build-releases.sh` (CCR images → ACR, CCE policies, release manifests), `state-outputs.sh` (a component's outputs from its state blob), `render-env.sh` (all component outputs → `depa-env.yaml`), `party-keys.sh` (party keys ↔ GitHub secret). |
+| `../.github/workflows/` | The workflow tree below: every workflow is `workflow_dispatch` + `workflow_call` (runnable alone), logs in to Azure with GitHub OIDC and runs in a GitHub environment; shared logic in the composite actions `azure-terraform` and `depa-cli`. **Local end-to-end** is the always-on sandbox check. |
 
 ## Single-subscription Azure deployment: one-time setup
 
@@ -16,7 +16,7 @@ No client secret is ever created: GitHub Actions authenticates with a federated 
 SUB=<subscription-id>
 REPO=prescera/depa-training          # this repository; the service repos are checked out from the same owner
 ENV=<environment>                     # GitHub environment name (also the state key prefix), e.g. demo
-LOC=centralindia                      # offers ACL, VN2 confidential pods and Flex Consumption (checked by "Set up collaborative")
+LOC=centralindia                      # offers ACL, VN2 confidential pods and Flex Consumption (checked by "Deploy KMS infra")
 STATE_SA=<globally-unique-name>       # Terraform state storage account (3-24 lowercase alphanumerics)
 
 az login && az account set --subscription "$SUB"
@@ -109,7 +109,7 @@ somewhere safe (it is needed to re-publish) or regenerate and re-publish before 
 This concentrates every party's signing key in one GitHub environment: acceptable for a demo
 on synthetic data only. Production parties keep their own keys and run their own steps.
 
-### Optional: GCP clean rooms (`platform = gcp` in "Run scenario")
+### Optional: GCP clean rooms (`platform = gcp` in "Run Scenario")
 
 Deploy [`environments/tdc-gcp-cs`](terraform/environments/tdc-gcp-cs) and set `GCP_PROJECT`,
 `GCP_ZONE`, `GCP_SERVICE_ACCOUNT` (workload SA), `GCP_SUBNET`, `GCP_WORKLOAD_IDENTITY_PROVIDER`
@@ -118,29 +118,49 @@ Identity Federation from this repository) as environment variables.
 
 ## Single-subscription Azure deployment: deploy and run (Actions tab, choose the environment each time)
 
-**One click:** **End-to-end demo** (inputs: environment, scenario, platform, teardown) runs the
-three workflows below in order; teardown runs even after a failure when selected. Label a pull
-request `run-azure-demo` to run it for credit-risk with teardown in the environment named by the
-repository variable `DEMO_ENVIRONMENT` (same-repository PRs only). The workflows mirror the
-DEPA Training flow:
+**One click:** **End-to-End demo** (inputs: environment, scenario, platform,
+skip_cleanroom_build, teardown). Label a pull request `run-azure-demo` to run it for credit-risk
+with teardown in the environment named by the repository variable `DEMO_ENVIRONMENT`
+(same-repository PRs only). The tree mirrors the DEPA Training flow; every node is its own
+workflow and can be run alone:
 
-| Workflow | Jobs / steps | Does |
-|---|---|---|
-| **Set up collaborative** | *Trusted services infrastructure* | region check (ACL, Flex Consumption, VN2 confidential pods); Terraform `1-platform`: party resource groups, KMS + contract-service ledgers (Key Vaults, member certs), container registry, Log Analytics, the consumer's AKS cluster |
-| | *KMS and contract service* | builds both bundles, `PUT /app/userDefinedEndpoints` on each ledger, `depa dc setup` (bootstrap → KMS OIDC key, members, parties, settings) |
-| | *Clean-room releases* (classic, torch, llm) | images → registry, CCE policies, release manifests (artifacts `ccr-releases-<env>-<family>`; version `2.0.0-demo.<run id>` because release ids are immutable once approved) |
-| **Set up collaborators** | *Provider and consumer resources* | Terraform `2-workloads`: per provider (`tdc`, `tdp-1`…`tdp-4`) storage + SAS broker (KMS JWKS pinned), consumer output storage + broker, virtual nodes release, namespace, RBAC; removes a stray `vn2` namespace; deploys the broker code (`deploy-brokers.sh`, Entra auth) |
-| **Run scenario** | Register parties and releases → Dataset keys and policies → Encrypt and upload data → Sign contract → Train in clean room → Download model | `depa dc setup` (idempotent), then one `depa scenario deploy --stage keys/data/contract/train/model` step each; uploads stage summaries + receipts |
-| **Tear down** | Destroy collaborator resources → Destroy trusted services infrastructure | `terraform destroy` of `2-workloads`, then `1-platform` |
+```
+End-to-End demo                              end-to-end.yml
+├─ Setup Data Collab                         setup-data-collab.yml
+│  ├─ Deploy Collab infra                    deploy-collab-infra.yml
+│  │  ├─ Deploy KMS infra                    deploy-kms-infra.yml            region check, root kms
+│  │  └─ Deploy Contract Service infra       deploy-contract-service-infra.yml  root contract-service
+│  ├─ Bootstrap Trust Services               bootstrap-trust-services.yml
+│  │  ├─ Bootstrap KMS                       bootstrap-kms.yml               bundle → ledger, dc setup --step bootstrap-kms
+│  │  ├─ Bootstrap Contract Service          bootstrap-contract-service.yml  bundle → ledger, dc setup --step bootstrap-cs
+│  │  └─ Link services (job)                 dc setup --step link
+│  └─ Cleanroom build and release (skip)     cleanroom-build-release.yml     root registry
+│     └─ Cleanroom image ×{classic,torch,llm} cleanroom-image.yml           image → ACR, CCE policy, manifests
+├─ Setup Training Collaborators              setup-training-collaborators.yml
+│  ├─ Setup Data Provider ×{tdp-1..tdp-4}    setup-data-provider.yml         root data-provider, broker code
+│  ├─ Setup Data Consumer                    setup-data-consumer.yml         root data-consumer, broker code
+│  └─ Setup CCR Provider                     setup-ccr-provider.yml          roots ccr-provider-cluster → ccr-provider-config
+├─ Run Scenario                              run-scenario.yml
+│  ├─ Register collaborators and artefacts   register-collaborators.yml      dc setup --step register
+│  ├─ Keys and policies                      keys-and-policies.yml
+│  │  ├─ Configure Key release policies      configure-key-release-policies.yml  --stage keys
+│  │  └─ Data/Model encryption and storage   data-encryption-storage.yml     --stage data (with the trainer stack)
+│  ├─ Contract Signing                       contract-signing.yml            --stage contract
+│  ├─ Model Training in CCR                  model-training.yml              --stage train
+│  └─ Model download and provenance          model-download.yml              --stage model, receipts artifact
+└─ Tear down (optional)                      teardown.yml
+   ├─ Tear down Scenario                     teardown-scenario.yml           data providers, data consumer, CCR config → cluster
+   └─ Tear down DC services                  teardown-dc-services.yml        registry (job)
+      ├─ Tear down KMS                       teardown-kms.yml
+      └─ Tear down Contract Service          teardown-contract-service.yml
+```
 
-Both setup workflows take `apply` (default on; off = Terraform plan only). Any scenario runs on
-the same deployment: pick it in **Run scenario** (or in **End-to-end demo**).
-
-The consumer's AKS cluster is still created by *Trusted services infrastructure* (Terraform phase
-`1-platform`): the Kubernetes and Helm providers of phase `2-workloads` need an existing cluster.
-Moving it into collaborator setup would need a fresh deployment (the Terraform phases and state
-keys `depa-training/<environment>/<phase>.tfstate` are unchanged so existing deployments keep
-working).
+Each Terraform leaf initialises one component root (`azure-terraform` action) against
+`depa-training/<environment>/<component>.tfstate`. Each scenario stage starts on a fresh runner
+(`depa-cli` action: CLI, release manifests, `depa-env.yaml` rendered from the component states,
+party keys) with its own `--work-dir`. Clean-room release versions are `2.0.0-demo.<run id>`
+because release ids are immutable once approved. Any scenario runs on the same deployment: pick
+it in **Run Scenario**.
 
 ### Why no public KMS gateway is needed
 
@@ -150,26 +170,32 @@ JWKS (fetched over TLS pinned to the KMS ledger identity and cross-checked with 
 no publicly trusted issuer endpoint is involved and the issuer is the ledger URL
 (`https://<kms-ledger>.confidential-ledger.azure.com/app/oidc`). Datasets on AWS/GCP need
 the public issuer: add [`environments/dc/2-gateway`](terraform/environments/dc) using the
-`kms_gateway_stack_inputs` output of `1-platform`.
+`gateway_stack_inputs` output of the `kms` root.
 
 ### Running locally instead of from Actions
 
+Each root has a `terraform.tfvars.example`; uncomment its backend block (key
+`depa-training/<environment>/<component>.tfstate`) or pass `-backend-config`. In order:
+
 ```bash
-cd deploy/terraform/environments/azure-single-subscription/1-platform
-cp terraform.tfvars.example terraform.tfvars            # parties: ../../../../scripts/demo-parties.py > parties.auto.tfvars.json
-terraform init && terraform apply                       # DC stacks from github.com/prescera/*@main (or local_override.tf.tpl for checkouts)
-terraform output -json platform > /tmp/platform.json
-../../../../scripts/deploy-services.sh --platform-json /tmp/platform.json --kms-repo <kms checkout> --cs-repo <cs checkout>
-# depa dc setup …, then:
-cd ../2-workloads
-jq '{platform: .}' /tmp/platform.json > platform.auto.tfvars.json
-# set kms_jwks_json (output of deploy/scripts/fetch-kms-jwks.sh <kms-ledger>) in terraform.tfvars
-terraform init && terraform apply
-# Broker code (Terraform creates the apps; basic-auth publishing stays disabled):
-terraform output -json workloads | jq .brokers > /tmp/brokers.json
-pkg=$(../../../modules/azure/federation-broker/build-package.sh)
-../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json /tmp/brokers.json
-deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./demo-keys --releases-dir ccr/releases --out depa-env.yaml
+cd deploy/terraform/environments/azure-single-subscription
+for c in kms contract-service registry; do (cd $c && terraform init && terraform apply); done   # kms/cs: local_override.tf.tpl for checkouts
+S="--account <statestorage> --environment <env>"
+../../../scripts/deploy-services.sh --service kms --ledger "$(../../../scripts/state-outputs.sh $S kms | jq -r .ledger_name)" --repo <kms checkout>
+../../../scripts/deploy-services.sh --service cs --ledger "$(../../../scripts/state-outputs.sh $S contract-service | jq -r .ledger_name)" --repo <cs checkout>
+../../../scripts/render-env.sh $S --parties-json <(../../../scripts/demo-parties.py) --keys-dir ./demo-keys --releases-dir ../../../../ccr/releases --out depa-env.yaml
+depa dc setup --env depa-env.yaml --step bootstrap-kms,bootstrap-cs,link
+JWKS="$(../../../scripts/fetch-kms-jwks.sh "$(../../../scripts/state-outputs.sh $S kms | jq -r .ledger_name)")"
+pkg="$(../../modules/azure/federation-broker/build-package.sh)"
+for p in tdp-1 tdp-2 tdp-3 tdp-4; do   # one state per provider: key depa-training/<env>/data-provider-$p.tfstate
+  (cd data-provider && terraform init -reconfigure -backend-config=key=depa-training/<env>/data-provider-$p.tfstate \
+     && terraform apply -var party_id=$p -var kms_jwks_json="$JWKS" \
+     && ../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json <(terraform output -json brokers))
+done
+(cd data-consumer && terraform init && terraform apply -var kms_jwks_json="$JWKS" \
+   && ../../../../scripts/deploy-brokers.sh --package "$pkg" --from-json <(terraform output -json brokers))
+(cd ccr-provider-cluster && terraform init && terraform apply)
+(cd ccr-provider-config && terraform init && terraform apply)   # needs kubelogin
 ```
 
 ## Troubleshooting
@@ -179,26 +205,27 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./demo-keys 
   `gh api repos/$REPO/actions/oidc/customization/sub`) and add a credential with that exact
   subject plus `:environment:$ENV`.
 
-- **`DEPA_PARTY_KEYS is empty`** in "Set up collaborative" or "Run scenario": the secret was set from
+- **`DEPA_PARTY_KEYS is empty`** in a bootstrap or scenario workflow: the secret was set from
   an empty value (e.g. an earlier `gh secret set --body "$(…)"` whose command failed). Re-publish
   it with `party-keys.sh init` (only if you have no keys yet) and `party-keys.sh publish` as
   above. **If your environment's secret was set before `publish` existed, it may be empty: re-publish it.**
 - **`<NAME> is empty: set the environment secret/variable`**: an Azure identifier secret or a
   region/naming variable is missing from the GitHub environment (step 6).
 - **Helm: `namespace "vn2" exists and cannot be imported into the current release`** (after an
-  earlier failed attempt that created `vn2` outside the chart): "Set up collaborators" removes the stray
+  earlier failed attempt that created `vn2` outside the chart): "Setup CCR Provider" removes the stray
   namespace before applying, as long as the virtualnode release is not installed. When applying
   by hand, run `az aks command invoke -g <tdc-rg> -n <cluster> --command "kubectl delete namespace vn2"`.
 - **Broker deploy `401 Unauthorized`** from an older run: Terraform no longer deploys broker code
-  (basic-auth publishing stays disabled); "Set up collaborators" runs `deploy-brokers.sh` with Entra auth.
+  (basic-auth publishing stays disabled); "Setup Data Provider"/"Setup Data Consumer" run `deploy-brokers.sh` with Entra auth.
 - **Region preflight fails**: the region lacks ACL, Flex Consumption or virtual nodes v2
   confidential pods; it lists the regions that offer all three. Pick one and update the variables.
 
 ## Assumptions and limits
 
 - `depa dc setup` is idempotent and approves the CCR releases found in `releases_dir`;
-  "Run scenario" runs `depa --json scenario deploy --stage <stage>` once per stage with a shared
-  `--work-dir` and uploads each stage's summary plus any `*receipt*` files (the work dir itself is
+  "Run Scenario" runs `depa --json scenario deploy --stage <stage>` once per stage, each on a fresh
+  runner with its own `--work-dir` (a stage falls back to the services when no earlier state is
+  present), and uploads each stage's summary plus any `*receipt*` files (the work dir itself is
   never uploaded because it holds plaintext data). CLI owned by the SDK.
 - `depa-env.yaml` follows `sdk/python/src/depa/env/schema.json`: `service_cert` is a path
   relative to the env file (`certs/kms.pem`, `certs/cs.pem`); each demo TDP keeps all its

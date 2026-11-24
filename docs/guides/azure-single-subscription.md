@@ -7,9 +7,11 @@ which is acceptable for synthetic or demo data only.
 
 | Resource group | Party | Contents |
 |---|---|---|
-| DC | Data Collaborative | KMS and Contract Service (each on its own Azure Confidential Ledger), Key Vaults |
-| one per provider (`tdc`, `tdp-1`…`tdp-4`) | Data providers | Storage account with a `datasets` container, plus a SAS federation broker |
-| TDC | Consumer | Output storage and broker, AKS with virtual nodes v2 for confidential ACI, ACR |
+| `dc-kms`, `dc-cs` | Data Collaborative | KMS and Contract Service, each on its own Azure Confidential Ledger with a Key Vault |
+| `registry` | Data Collaborative | Container registry for clean-room images |
+| one per provider (`tdp-1`…`tdp-4`; `tdc` also provides a dataset) | Data providers | Storage account with a `datasets` container, plus a SAS federation broker |
+| `tdc` | Consumer | Its own dataset storage (llm-sft base model), output storage, SAS brokers |
+| `ccr-provider` | Clean-room provider | AKS with virtual nodes v2 for confidential ACI, Log Analytics |
 
 ## 1. One-time setup (about 15 minutes)
 
@@ -33,23 +35,25 @@ these slots, so one deployment runs any scenario.
 
 The default region is **`centralindia`** (short code `cin`). The region must offer Azure
 Confidential Ledger, Functions Flex Consumption and AKS virtual nodes v2 with confidential pods.
-**Set up collaborative** checks all three before it plans anything
+**Deploy KMS infra** and **Deploy Contract Service infra** check all three before they plan anything
 (`deploy/scripts/check-region.sh`), and when a region fails it lists the regions that offer all
 three. Add required reviewers to the environment to get an approval gate.
 
 ## 2. Deploy and run (Actions tab)
 
-One click: **End-to-end demo** (environment, scenario, platform, optional teardown). It runs
-three workflows that mirror the DEPA Training flow, which can also be run one by one:
+One click: **End-to-End demo** (environment, scenario, platform, optional clean-room build skip
+and teardown). It runs three workflows that mirror the DEPA Training flow; each, and each of
+their steps, is its own workflow that can also be run alone (full tree in
+[deploy/README.md](../../deploy/README.md#single-subscription-azure-deployment-deploy-and-run-actions-tab-choose-the-environment-each-time)):
 
 | Workflow | What it does |
 |---|---|
-| **Set up collaborative** | The Data Collaborative's trusted services: ledgers, KMS and contract service with governance, clean-room releases |
-| **Set up collaborators** | Each provider's storage and SAS broker, the consumer's output storage, AKS virtual nodes for clean rooms |
-| **Run scenario** | Dataset keys and policies → encrypt and upload data → sign contract → train in clean room → download model |
+| **Setup Data Collab** | Deploy Collab infra (KMS and Contract Service ledgers) → Bootstrap Trust Services (bundles, bootstrap, link) → Cleanroom build and release (registry, one image per trainer family) |
+| **Setup Training Collaborators** | Setup Data Provider ×4, Setup Data Consumer, Setup CCR Provider (AKS + virtual nodes for confidential ACI) |
+| **Run Scenario** | Register collaborators and artefacts → Keys and policies → Contract Signing → Model Training in CCR → Model download and provenance |
 
-Re-run **Run scenario** for any scenario; no redeployment is needed. **Tear down** removes
-everything.
+Re-run **Run Scenario** for any scenario; no redeployment is needed. **Tear down** removes
+everything in reverse order.
 
 ## 3. Check the result
 

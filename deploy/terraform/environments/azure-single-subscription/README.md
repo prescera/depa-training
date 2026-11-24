@@ -1,16 +1,28 @@
-# Environment: single-subscription Azure deployment (whole collaborative in one subscription)
+# Environment: single-subscription Azure deployment (demo)
 
-One subscription, one resource group per party, parameterised by `parties`. The workflows use
-the fixed demo set from `deploy/scripts/demo-parties.py` (`dc-member-1`, `tdc` [tdc, tdp],
-`tdp-1` … `tdp-4`), onto which the SDK maps any scenario's providers. Multi-subscription / multi-cloud
-deployments use the per-role environments (`dc`, `tdp-*`, `tdc-*`) instead.
+A whole Data Collaborative in one Azure subscription, one resource group per party, split into
+independent Terraform roots: one root and one state per component, so each party's part can be
+deployed, re-deployed or destroyed on its own.
 
-| Phase | Creates | Needs |
-|---|---|---|
-| [`1-platform`](1-platform) | `<prefix>-<party>-rg` per party, `<prefix>-dc-kms-rg` / `<prefix>-dc-cs-rg` (KMS and CS stacks: VNet, Key Vault + member cert, ACL ledger), `<prefix>-shared-rg` (ACR, Log Analytics), the TDC's AKS + virtual nodes infra in its group | DC service repos (pinned git sources or `local_override.tf.tpl`) |
-| — | `deploy/scripts/deploy-services.sh` (bundles → ACL) and `depa dc setup` (bootstrap creates the KMS OIDC key) | phase 1 |
-| [`2-workloads`](2-workloads) | per TDP (incl. `tdc`): dataset storage (one `datasets` container, broker grant `dataset:<party>/*`) + federation broker; per TDC: output storage + broker; virtual nodes Helm release, `depa-ccr` namespace, quota, submitter RBAC | `platform` = phase-1 output `platform`, pinned KMS JWKS, broker package, `kubelogin` |
+| Root | State key (`depa-training/<environment>/…`) | Creates | Reads |
+|---|---|---|---|
+| [`kms`](kms) | `kms.tfstate` | `<prefix>-dc-kms-rg`: KMS ledger (Azure Confidential Ledger), Key Vault + member certificate, network | — |
+| [`contract-service`](contract-service) | `contract-service.tfstate` | `<prefix>-dc-cs-rg`: Contract Service ledger, Key Vault, network | — |
+| [`registry`](registry) | `registry.tfstate` | `<prefix>-registry-rg`: container registry for clean-room images, AcrPush for the deployer | — |
+| [`data-provider`](data-provider) (`party_id` = tdp-1…tdp-4) | `data-provider-<party>.tfstate` | `<prefix>-<party>-rg`: dataset storage (`datasets` container) + SAS broker | `kms` (issuer) + pinned KMS JWKS |
+| [`data-consumer`](data-consumer) | `data-consumer.tfstate` | `<prefix>-tdc-rg`: the consumer's own dataset storage (llm-sft base model), output storage, SAS brokers | `kms` + pinned KMS JWKS |
+| [`ccr-provider-cluster`](ccr-provider-cluster) | `ccr-provider-cluster.tfstate` | `<prefix>-ccr-provider-rg`: AKS + virtual nodes infrastructure, registry pull identity, Log Analytics | `registry` (optional) |
+| [`ccr-provider-config`](ccr-provider-config) | `ccr-provider-config.tfstate` | virtual nodes v2 Helm release (confidential ACI), clean-room namespace, quota, RBAC | `ccr-provider-cluster` |
 
-No public KMS gateway is required: the brokers pin the KMS JWKS and the issuer is the KMS ledger
-endpoint (`…/app/oidc`). The exact click-by-click and command-line procedures, required roles,
-variables and secrets are in [`deploy/README.md`](../../../README.md).
+- Names come from [`modules/naming`](modules/naming): a deterministic suffix
+  `substr(sha1("<subscription>/<prefix>"), 0, 5)` shared by every root, so no root needs another's
+  state just for names. Cross-root values use `terraform_remote_state` (variable `state_backend`)
+  or, for the KMS JWKS pinned into the SAS brokers, `deploy/scripts/fetch-kms-jwks.sh`.
+- Apply order: `kms`, `contract-service` (→ bundles + bootstrap) → `registry` → `data-provider`
+  ×4, `data-consumer`, `ccr-provider-cluster` → `ccr-provider-config`. Destroy in reverse.
+- After applying `data-provider` / `data-consumer`, deploy the broker code:
+  `deploy/scripts/deploy-brokers.sh --package "$(../../modules/azure/federation-broker/build-package.sh)" --from-json <(terraform output -json brokers)`.
+- `deploy/scripts/render-env.sh` reads every component's outputs from the state blobs.
+- Each root has offline plan tests (`tests/plan.tftest.hcl`, remote state mocked with `override_data`).
+
+The GitHub workflows do all of this; see [`deploy/README.md`](../../../README.md).

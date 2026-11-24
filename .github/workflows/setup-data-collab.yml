@@ -1,0 +1,60 @@
+name: Setup Data Collab
+
+# The Data Collaborative: trusted services infrastructure, bootstrapped and linked trust services,
+# and the clean-room images and release manifests. Next: "Setup Training Collaborators".
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+      skip_cleanroom_build:
+        description: Skip the clean-room image build (reuse the latest release manifests)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      skip_cleanroom_build:
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  infra:
+    name: Deploy Collab infra
+    uses: ./.github/workflows/deploy-collab-infra.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  bootstrap:
+    name: Bootstrap Trust Services
+    needs: infra
+    uses: ./.github/workflows/bootstrap-trust-services.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  cleanroom:
+    name: Cleanroom build and release
+    needs: infra
+    uses: ./.github/workflows/cleanroom-build-release.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      environment: ${{ inputs.environment }}
+      skip: ${{ inputs.skip_cleanroom_build }}
+    secrets: inherit

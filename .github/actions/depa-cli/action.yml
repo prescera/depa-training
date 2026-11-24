@@ -1,0 +1,121 @@
+name: "depa CLI for the single-subscription deployment"
+description: >-
+  Prepare a runner to act for the demo parties: Azure login (GitHub OIDC), the hash-locked depa
+  CLI, optionally a scenario's trainer stack (for data preparation), kubelogin and the clean-room
+  release manifests, then render depa-env.yaml from the component states and restore the party
+  keys. Every step that uses it starts on a fresh runner.
+
+inputs:
+  environment:
+    description: GitHub environment name (state key prefix, release artifact names)
+    required: true
+  client-id:
+    description: secrets.AZURE_CLIENT_ID
+    required: true
+  tenant-id:
+    description: secrets.AZURE_TENANT_ID
+    required: true
+  subscription-id:
+    description: secrets.AZURE_SUBSCRIPTION_ID
+    required: true
+  tfstate-storage-account:
+    description: secrets.TFSTATE_STORAGE_ACCOUNT
+    required: true
+  party-keys:
+    description: secrets.DEPA_PARTY_KEYS
+    required: true
+  github-token:
+    description: Token with actions:read, to fetch release manifests from an earlier run
+    required: false
+    default: ""
+  releases:
+    description: '"true" to fetch the clean-room release manifests'
+    required: false
+    default: "false"
+  trainer-stack-for:
+    description: Scenario whose trainer-family lock (trainers/requirements/<family>.txt) to install
+    required: false
+    default: ""
+  kubelogin:
+    description: '"true" to install kubelogin (AKS submission)'
+    required: false
+    default: "false"
+
+outputs:
+  env-file:
+    description: Path of the rendered depa-env.yaml
+    value: ${{ steps.render.outputs.env-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.12"
+    - name: Install depa CLI
+      shell: bash
+      env:
+        SCENARIO: ${{ inputs.trainer-stack-for }}
+        CMAKE_POLICY_VERSION_MINIMUM: "3.5" # dp-xgboost (classic) builds from its hashed sdist
+      run: |
+        set -euo pipefail
+        if [[ -n "${SCENARIO}" ]]; then
+          # Scenario data preparation (prepare/prepare.sh) needs the trainer family's stack.
+          [[ "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ && -f "scenarios/${SCENARIO}/recipe.yaml" ]] \
+            || { echo "::error::no scenario ${SCENARIO}"; exit 1; }
+          family="$(sed -n 's/^family:[[:space:]]*\([a-z0-9]*\).*/\1/p' "scenarios/${SCENARIO}/recipe.yaml" | head -1)"
+          [[ -f "trainers/requirements/${family}.txt" ]] || { echo "::error::no lock file for family '${family}'"; exit 1; }
+          python -m pip install --require-hashes -r "trainers/requirements/${family}.txt"
+        fi
+        python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
+        python -m pip install --no-deps ./trainers ./sdk/python
+    - name: Install kubelogin
+      if: inputs.kubelogin == 'true'
+      shell: bash
+      run: sudo az aks install-cli --only-show-errors >/dev/null
+    # Release manifests from this run first (End-to-End demo), else from the latest
+    # "Cleanroom image" runs.
+    - id: releases_this_run
+      if: inputs.releases == 'true'
+      continue-on-error: true
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: ccr-releases-${{ inputs.environment }}-*
+        merge-multiple: true
+        path: ${{ runner.temp }}/releases
+    - name: Get release manifests
+      if: inputs.releases == 'true' && steps.releases_this_run.outcome != 'success'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DEPLOY_ENV: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        for family in classic torch llm; do
+          name="ccr-releases-${DEPLOY_ENV}-${family}"
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')"
+          [[ -n "${run_id}" ]] || { echo "::error::no ${name} artifact; run \"Cleanroom build and release\" first"; exit 1; }
+          gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" --name "${name}" --dir "${RUNNER_TEMP}/releases"
+        done
+    - id: render
+      name: Render environment file
+      shell: bash
+      env:
+        DEPA_PARTY_KEYS: ${{ inputs.party-keys }}
+        DEPLOY_ENV: ${{ inputs.environment }}
+        TFSTATE_STORAGE_ACCOUNT: ${{ inputs.tfstate-storage-account }}
+      run: |
+        set -euo pipefail
+        python deploy/scripts/demo-parties.py >"${RUNNER_TEMP}/demo-parties.json"
+        deploy/scripts/party-keys.sh unpack "${RUNNER_TEMP}/keys"
+        mkdir -p "${RUNNER_TEMP}/releases" "${RUNNER_TEMP}/env"
+        deploy/scripts/render-env.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" \
+          --parties-json "${RUNNER_TEMP}/demo-parties.json" --keys-dir "${RUNNER_TEMP}/keys" \
+          --releases-dir "${RUNNER_TEMP}/releases" --out "${RUNNER_TEMP}/env/depa-env.yaml"
+        echo "env-file=${RUNNER_TEMP}/env/depa-env.yaml" >>"${GITHUB_OUTPUT}"

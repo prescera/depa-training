@@ -1,0 +1,88 @@
+name: Cleanroom build and release
+
+# The registry for clean-room images (Terraform root registry), then one "Cleanroom image" per
+# trainer family (credit-risk: classic; mnist, cifar10, covid, brats: torch; llm-sft: llm).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+      skip:
+        description: Skip (reuse the registry and the latest release manifests)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      skip:
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  registry:
+    name: Deploy registry
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: tf
+        uses: ./.github/actions/azure-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          component: registry
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Terraform plan
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: |
+          set -o pipefail
+          terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
+          { echo "### Registry: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - name: Terraform apply
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan
+
+  images:
+    name: Cleanroom image
+    needs: registry
+    if: ${{ !inputs.skip }}
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [classic, torch, llm]
+    uses: ./.github/workflows/cleanroom-image.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      environment: ${{ inputs.environment }}
+      family: ${{ matrix.family }}
+    secrets: inherit

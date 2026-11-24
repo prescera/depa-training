@@ -1,0 +1,4 @@
+subscription_id            = "00000000-0000-0000-0000-000000000000"
+location                   = "centralindia"
+name_prefix                = "demo1"
+registry_pusher_object_ids = ["33333333-3333-3333-3333-333333333333"]

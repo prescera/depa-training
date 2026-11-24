@@ -1,0 +1,75 @@
+name: Cleanroom image
+
+# One trainer family's clean-room image: build and push to the registry, generate the CCE policy
+# (aci-snp) and write the release manifests (artifact ccr-releases-<environment>-<family>).
+# Release ids are immutable once approved, so every run gets its own version.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+      family:
+        description: Trainer family
+        type: choice
+        options: [classic, torch, llm]
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      family:
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  image:
+    name: Cleanroom image (${{ inputs.family }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install confcom
+        run: az extension add --name confcom --version "$(tr -d '[:space:]' < ccr/policy/confcom.version)" --yes
+      - name: Build release
+        env:
+          BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAMILY: ${{ inputs.family }}
+        run: |
+          registry="$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" registry | jq -er '.login_server')"
+          deploy/scripts/build-releases.sh --registry "${registry}" --version "2.0.0-demo.${GITHUB_RUN_ID}" \
+            --families "${FAMILY}" --out-dir "${RUNNER_TEMP}/releases" --build-url "${BUILD_URL}"
+          { echo "### Cleanroom image (${FAMILY})"; echo '```'; ls -1 "${RUNNER_TEMP}/releases"; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/releases/*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ccr-releases-${{ inputs.environment }}-${{ inputs.family }}
+          path: ${{ runner.temp }}/releases/
+          if-no-files-found: error
+          retention-days: 90

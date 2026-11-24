@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# Render depa-env.yaml for the depa CLI from the azure-single-subscription Terraform outputs.
+# Render depa-env.yaml for the depa CLI from the single-subscription deployment's component states.
 #
-#   render-env.sh [--state-dir deploy/terraform/environments/azure-single-subscription] \
-#                 --parties-json parties.auto.tfvars.json --keys-dir DIR --releases-dir DIR \
-#                 [--out depa-env.yaml]
+#   render-env.sh --account STATE_ACCOUNT --environment ENV --parties-json FILE \
+#                 --keys-dir DIR --releases-dir DIR [--out depa-env.yaml]
 #
-# Reads `platform` (1-platform) and, when applied, `workloads` (2-workloads) with
-# `terraform output -json` (both phases must be initialised against their state), fetches both
-# ledger TLS identities from the ACL identity service into certs/ next to the output file, and
-# writes {collaborative, parties, storage, outputs, compute, registry, releases_dir}.
-# GCP compute (optional) comes from GCP_PROJECT, GCP_ZONE, GCP_SERVICE_ACCOUNT, GCP_SUBNET.
+# Reads the outputs of every component (kms, contract-service, registry, data-provider-tdp-1..4,
+# data-consumer, ccr-provider-config) from their state blobs; components not deployed yet are
+# skipped. Fetches both ledger TLS identities from the ACL identity service into certs/ next to
+# the output file. GCP compute (optional): GCP_PROJECT, GCP_ZONE, GCP_SERVICE_ACCOUNT, GCP_SUBNET.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-state_dir="${here}/../terraform/environments/azure-single-subscription"
-args=()
+account="" env="" args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --state-dir) state_dir="$2"; shift 2 ;;
+    --account) account="$2"; shift 2 ;;
+    --environment) env="$2"; shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
 done
+[[ -n "${account}" && -n "${env}" ]] || { echo "render-env.sh: --account and --environment are required" >&2; exit 2; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-terraform -chdir="${state_dir}/1-platform" output -json platform >"${tmp}/platform.json"
-workloads=()
-if terraform -chdir="${state_dir}/2-workloads" output -json workloads >"${tmp}/workloads.json" 2>/dev/null \
-   && [[ "$(cat "${tmp}/workloads.json")" != "null" ]]; then
-  workloads=(--workloads-json "${tmp}/workloads.json")
-fi
-python3 "${here}/render_env.py" --platform-json "${tmp}/platform.json" "${workloads[@]}" "${args[@]}"
-
+components=(kms contract-service registry data-provider-tdp-1 data-provider-tdp-2 data-provider-tdp-3
+            data-provider-tdp-4 data-consumer ccr-provider-config)
+echo '{}' >"${tmp}/outputs.json"
+for c in "${components[@]}"; do
+  "${here}/state-outputs.sh" --account "${account}" --environment "${env}" "${c}" >"${tmp}/c.json"
+  jq --arg c "${c}" --slurpfile v "${tmp}/c.json" '. + {($c): $v[0]}' "${tmp}/outputs.json" >"${tmp}/o.json"
+  mv "${tmp}/o.json" "${tmp}/outputs.json"
+done
+python3 "${here}/render_env.py" --outputs-json "${tmp}/outputs.json" "${args[@]}"

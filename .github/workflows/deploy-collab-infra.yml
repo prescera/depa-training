@@ -1,0 +1,38 @@
+name: Deploy Collab infra
+
+# The Data Collaborative's trusted services infrastructure: KMS and Contract Service, in parallel.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  kms:
+    name: Deploy KMS infra
+    uses: ./.github/workflows/deploy-kms-infra.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  contract-service:
+    name: Deploy Contract Service infra
+    uses: ./.github/workflows/deploy-contract-service-infra.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit

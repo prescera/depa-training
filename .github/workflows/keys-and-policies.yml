@@ -1,0 +1,61 @@
+name: Keys and policies
+
+# Dataset keys and release policies in the KMS, then the encrypted data in provider storage.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+      scenario:
+        description: Scenario (scenarios/<name>)
+        type: choice
+        options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
+        default: credit-risk
+      platform:
+        description: "Clean-room platform: aks (confidential ACI) or gcp (Confidential Space)"
+        type: choice
+        options: [aks, gcp]
+        default: aks
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      scenario:
+        type: string
+        required: true
+      platform:
+        type: string
+        default: aks
+
+permissions: {}
+
+jobs:
+  policies:
+    name: Configure Key release policies
+    uses: ./.github/workflows/configure-key-release-policies.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      scenario: ${{ inputs.scenario }}
+      platform: ${{ inputs.platform }}
+    secrets: inherit
+
+  data:
+    name: Data/Model encryption and storage
+    needs: policies
+    uses: ./.github/workflows/data-encryption-storage.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      scenario: ${{ inputs.scenario }}
+      platform: ${{ inputs.platform }}
+    secrets: inherit

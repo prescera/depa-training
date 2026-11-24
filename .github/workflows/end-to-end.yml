@@ -1,8 +1,8 @@
-name: End-to-end demo
+name: End-to-End demo
 
-# One click: "Set up collaborative" -> "Set up collaborators" -> "Run scenario", then optionally
-# "Tear down" (also after a failure). Each is called as a reusable workflow; every job runs in the
-# chosen GitHub environment, so its protection rules (reviewers) gate it.
+# One click: Setup Data Collab -> Setup Training Collaborators -> Run Scenario, then optionally
+# Tear down (also after a failure). Every job runs in the chosen GitHub environment, whose
+# protection rules (reviewers) gate it.
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +20,10 @@ on:
         type: choice
         options: [aks, gcp]
         default: aks
+      skip_cleanroom_build:
+        description: Skip the clean-room image build (reuse the latest release manifests)
+        type: boolean
+        default: false
       teardown:
         description: Tear down afterwards (also after a failure)
         type: boolean
@@ -35,44 +39,45 @@ on:
       platform:
         type: string
         default: aks
+      skip_cleanroom_build:
+        type: boolean
+        default: false
       teardown:
         type: boolean
         default: false
 
 permissions: {}
 
-# Distinct from the called workflows' groups (azure-<env>, …) so they can run inside this run.
 concurrency:
   group: end-to-end-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
-  collaborative:
-    name: Set up collaborative
-    uses: ./.github/workflows/setup-collaborative.yml
+  collab:
+    name: Setup Data Collab
+    uses: ./.github/workflows/setup-data-collab.yml
     permissions:
       contents: read
       id-token: write
       attestations: write
     with:
       environment: ${{ inputs.environment }}
-      apply: true
+      skip_cleanroom_build: ${{ inputs.skip_cleanroom_build }}
     secrets: inherit
 
   collaborators:
-    name: Set up collaborators
-    needs: collaborative
-    uses: ./.github/workflows/setup-collaborators.yml
+    name: Setup Training Collaborators
+    needs: collab
+    uses: ./.github/workflows/setup-training-collaborators.yml
     permissions:
       contents: read
       id-token: write
     with:
       environment: ${{ inputs.environment }}
-      apply: true
     secrets: inherit
 
   scenario:
-    name: Run scenario
+    name: Run Scenario
     needs: collaborators
     uses: ./.github/workflows/run-scenario.yml
     permissions:
@@ -87,7 +92,7 @@ jobs:
 
   teardown:
     name: Tear down
-    needs: [collaborative, collaborators, scenario]
+    needs: [collab, collaborators, scenario]
     if: always() && inputs.teardown
     uses: ./.github/workflows/teardown.yml
     permissions:

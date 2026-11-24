@@ -1,0 +1,54 @@
+name: Setup Training Collaborators
+
+# The training collaborators, in parallel: the data providers tdp-1..tdp-4, the data consumer and
+# the clean-room (CCR) provider. Needs "Setup Data Collab". Next: "Run Scenario".
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  providers:
+    name: Setup Data Provider
+    strategy:
+      fail-fast: false
+      matrix:
+        party: [tdp-1, tdp-2, tdp-3, tdp-4]
+    uses: ./.github/workflows/setup-data-provider.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+      party: ${{ matrix.party }}
+    secrets: inherit
+
+  consumer:
+    name: Setup Data Consumer
+    uses: ./.github/workflows/setup-data-consumer.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  ccr-provider:
+    name: Setup CCR Provider
+    uses: ./.github/workflows/setup-ccr-provider.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit

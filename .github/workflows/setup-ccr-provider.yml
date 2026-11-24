@@ -1,0 +1,125 @@
+name: Setup CCR Provider
+
+# The clean-room (CCR) provider: the AKS cluster (Terraform root ccr-provider-cluster: AKS, virtual
+# nodes infrastructure, registry pull identity, Log Analytics), then its configuration (root
+# ccr-provider-config: virtual nodes v2 Helm release for confidential ACI, namespace, RBAC).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: tf-${{ inputs.environment }}-ccr-provider
+  cancel-in-progress: false
+
+jobs:
+  cluster:
+    name: Deploy cluster
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: tf
+        uses: ./.github/actions/azure-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          component: ccr-provider-cluster
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Terraform plan
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: |
+          set -o pipefail
+          terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
+          { echo "### CCR provider cluster: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - name: Terraform apply
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan
+
+  config:
+    name: Configure cluster
+    needs: cluster
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: tf
+        uses: ./.github/actions/azure-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          component: ccr-provider-config
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Remove stray virtual-nodes namespace
+        run: |
+          # The chart creates the vn2 namespace itself. A namespace left behind by an earlier failed
+          # install (Helm keeps namespaces it created on atomic rollback) makes the next install fail
+          # with "exists and cannot be imported". Remove it only while the virtualnode release is
+          # not installed; az aks command invoke reaches the cluster through ARM.
+          cluster="$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" ccr-provider-cluster)"
+          rg="$(jq -r '.resource_group_name // empty' <<<"${cluster}")"
+          name="$(jq -r '.cluster_name // empty' <<<"${cluster}")"
+          [[ -n "${rg}" && -n "${name}" ]] || { echo "::error::no clean-room cluster state"; exit 1; }
+          az aks command invoke --resource-group "${rg}" --name "${name}" --output tsv --query logs \
+            --command 'if helm status virtualnode -n default >/dev/null 2>&1; then echo "virtualnode release installed"; elif kubectl get namespace vn2 >/dev/null 2>&1; then kubectl delete namespace vn2 --wait=true; else echo "no stray vn2 namespace"; fi'
+      - name: Install kubelogin
+        run: sudo az aks install-cli --only-show-errors >/dev/null
+      - name: Terraform plan
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: |
+          set -o pipefail
+          terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
+          { echo "### CCR provider config: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - name: Terraform apply
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan

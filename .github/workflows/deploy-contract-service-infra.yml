@@ -1,0 +1,80 @@
+name: Deploy Contract Service infra
+
+# Terraform root azure-single-subscription/contract-service (state depa-training/<environment>/contract-service.tfstate):
+# the Contract Service on its own Azure Confidential Ledger, with Key Vault (member certificate) and network.
+# Checks that the region offers ACL, Flex Consumption and AKS virtual nodes v2 confidential pods.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment with the Azure secrets and variables
+        type: environment
+        required: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: tf-${{ inputs.environment }}-contract-service
+  cancel-in-progress: false
+
+jobs:
+  infra:
+    name: Deploy Contract Service infra
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
+      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: tf
+        uses: ./.github/actions/azure-terraform
+        with:
+          environment: ${{ inputs.environment }}
+          component: contract-service
+          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
+          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
+          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Check region
+        run: deploy/scripts/check-region.sh "${AZURE_LOCATION}" # ACL, Flex Consumption, VN2 confidential pods
+      - name: Open Key Vault firewall
+        run: |
+          # The demo runs the Key Vault with firewall default action Allow
+          # (key_vault_network_default_action): GitHub-hosted runners have changing egress IPs and
+          # Terraform reads the vault certificates while refreshing state, before it could change
+          # the firewall. Set it through the control plane (idempotent; data access still needs RBAC).
+          rg="${NAME_PREFIX}-dc-cs-rg"
+          [[ "$(az group exists --name "${rg}")" == "true" ]] || exit 0
+          for kv in $(az keyvault list --resource-group "${rg}" --query "[].name" -o tsv); do
+            az keyvault update --name "${kv}" --resource-group "${rg}" --default-action Allow --output none
+          done
+      - name: Terraform plan
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: |
+          set -o pipefail
+          terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
+          { echo "### Deploy Contract Service infra: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
+      - name: Terraform apply
+        env:
+          DIR: ${{ steps.tf.outputs.dir }}
+        run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan

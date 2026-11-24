@@ -1,9 +1,8 @@
-name: End-to-end demo (PR)
+name: End-to-End demo (PR)
 
-# Label a pull request `run-azure-demo` to deploy from the PR's code, run credit-risk end to end
-# and tear everything down. Same-repository PRs only (forks get no OIDC token or secrets); the
-# GitHub environment named by the repository variable DEMO_ENVIRONMENT (required) gates each
-# run with its required reviewers.
+# Label a pull request `run-azure-demo` to run the End-to-End demo from the PR's code (credit-risk
+# on aks, then tear down). Same-repository PRs only (forks get no OIDC token or secrets); the GitHub
+# environment named by the repository variable DEMO_ENVIRONMENT (required) gates each run.
 on:
   pull_request:
     types: [labeled, synchronize]
@@ -12,7 +11,7 @@ permissions: {}
 
 jobs:
   end-to-end:
-    name: End-to-end demo
+    name: End-to-End demo
     if: >-
       contains(github.event.pull_request.labels.*.name, 'run-azure-demo') &&
       github.event.pull_request.head.repo.full_name == github.repository &&

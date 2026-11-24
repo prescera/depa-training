@@ -1,0 +1,8 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+name_prefix     = "demo1"
+state_backend = {
+  resource_group_name  = "depa-training-v2-tfstate-rg"
+  storage_account_name = "<statestorage>"
+  environment          = "<github-environment>"
+}
+job_submitter_object_ids = ["33333333-3333-3333-3333-333333333333"]
