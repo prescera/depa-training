@@ -50,7 +50,7 @@ their steps, is its own workflow that can also be run alone (full tree in
 |---|---|
 | **Setup Data Collab** | Deploy Collab infra (KMS and Contract Service ledgers) → Bootstrap Trust Services (bundles, bootstrap, link) → Cleanroom build and release (registry, one image per trainer family) |
 | **Setup Training Collaborators** | Setup Data Provider ×4, Setup Data Consumer, Setup CCR Provider (AKS + virtual nodes for confidential ACI) |
-| **Run Scenario** | Register collaborators and artefacts → Keys and policies → Contract Signing → Model Training in CCR → Model download and provenance |
+| **Run Scenario** | Preflight (deployment check) → Register collaborators and artefacts → Keys and policies → Contract Signing → Model Training in CCR → Model download and provenance |
 
 Common combinations of the End-to-End demo inputs (a *Plan* job checks that skipped stages are
 already deployed before anything runs):
@@ -58,11 +58,13 @@ already deployed before anything runs):
 | Use | Setup Data Collab | Setup Training Collaborators | Run Scenario | Tear down |
 |---|---|---|---|---|
 | Fresh demo | on | on | on | none |
-| Back-to-back scenarios | off | off | on | none |
-| Scenario-only teardown | off | off | off | scenario (DC services stay up) |
+| Back-to-back scenarios | off | off | on | scenario (revokes its contracts, deletes its outputs) |
+| Fresh collaborators, keep DC services | off | on | on | collaborators |
 | Full teardown | off | off | off | all |
 
-**Tear down** on its own takes the same scope (`scenario` or `all`).
+Teardown scopes: **scenario** removes one scenario's contracts and model outputs;
+**collaborators** also destroys the providers, consumer and CCR provider; **all** also destroys
+the DC services. **Tear down** on its own takes the same scopes.
 
 ## 3. Check the result
 

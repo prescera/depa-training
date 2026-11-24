@@ -1,7 +1,11 @@
 name: Tear down
 
-# Tears down in reverse order of setup: the scenario's collaborators (scope scenario or all),
-# then the DC services (scope all only).
+# Tears down in reverse order of setup, by scope:
+#   scenario       Tear down Scenario: revoke the scenario's contracts, delete its model outputs
+#                  (collaborators, datasets, keys and DC services stay)
+#   collaborators  Tear down Scenario (when a scenario is given), then Tear down Collaborators
+#                  (data providers, data consumer, CCR provider)
+#   all            the above, then Tear down DC services (KMS, Contract Service, registry)
 on:
   workflow_dispatch:
     inputs:
@@ -10,10 +14,19 @@ on:
         type: environment
         required: true
       scope:
-        description: "scenario: collaborator resources only (DC services stay up) · all: everything"
+        description: "scenario · collaborators · all"
         type: choice
-        options: [scenario, all]
+        options: [scenario, collaborators, all]
         default: all
+      scenario:
+        description: Scenario to tear down (scenarios/<name>; required for scope scenario, optional otherwise)
+        type: string
+        default: ""
+      platform:
+        description: Clean-room platform the scenario ran on
+        type: choice
+        options: [aks, gcp]
+        default: aks
       confirm:
         description: Type the environment name again to confirm
         type: string
@@ -26,6 +39,12 @@ on:
       scope:
         type: string
         default: all
+      scenario:
+        type: string
+        default: ""
+      platform:
+        type: string
+        default: aks
       confirm:
         type: string
         required: true
@@ -33,10 +52,45 @@ on:
 permissions: {}
 
 jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      SCOPE: ${{ inputs.scope }}
+      SCENARIO: ${{ inputs.scenario }}
+      CONFIRMED: ${{ inputs.confirm == inputs.environment }}
+    steps:
+      - name: Check inputs
+        run: |
+          [[ "${CONFIRMED}" == true ]] || { echo "::error::confirm must repeat the environment name"; exit 1; }
+          [[ "${SCOPE}" =~ ^(scenario|collaborators|all)$ ]] || { echo "::error::scope must be scenario, collaborators or all"; exit 1; }
+          if [[ "${SCOPE}" == scenario && -z "${SCENARIO}" ]]; then
+            echo "::error::scope scenario needs a scenario"; exit 1
+          fi
+          [[ -z "${SCENARIO}" || "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::invalid scenario name"; exit 1; }
+
   scenario:
     name: Tear down Scenario
-    if: inputs.confirm == inputs.environment && (inputs.scope == 'scenario' || inputs.scope == 'all')
+    needs: check
+    if: inputs.scenario != ''
     uses: ./.github/workflows/teardown-scenario.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      scenario: ${{ inputs.scenario }}
+      platform: ${{ inputs.platform }}
+    secrets: inherit
+
+  collaborators:
+    name: Tear down Collaborators
+    needs: [check, scenario]
+    if: ${{ always() && needs.check.result == 'success' && (inputs.scope == 'collaborators' || inputs.scope == 'all') }}
+    uses: ./.github/workflows/teardown-collaborators.yml
     permissions:
       contents: read
       id-token: write
@@ -46,8 +100,8 @@ jobs:
 
   dc-services:
     name: Tear down DC services
-    needs: scenario
-    if: inputs.confirm == inputs.environment && inputs.scope == 'all'
+    needs: [check, collaborators]
+    if: ${{ always() && needs.check.result == 'success' && inputs.scope == 'all' && needs.collaborators.result == 'success' }}
     uses: ./.github/workflows/teardown-dc-services.yml
     permissions:
       contents: read

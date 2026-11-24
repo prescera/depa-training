@@ -141,6 +141,7 @@ End-to-End demo                              end-to-end.yml
 │  ├─ Setup Data Consumer                    setup-data-consumer.yml         root data-consumer, broker code
 │  └─ Setup CCR Provider                     setup-ccr-provider.yml          roots ccr-provider-cluster → ccr-provider-config
 ├─ Run Scenario                              run-scenario.yml
+│  ├─ Preflight (job)                        collaborator + DC component states exist
 │  ├─ Register collaborators and artefacts   register-collaborators.yml      dc setup --step register
 │  ├─ Keys and policies                      keys-and-policies.yml
 │  │  ├─ Configure Key release policies      configure-key-release-policies.yml  --stage keys
@@ -148,26 +149,32 @@ End-to-End demo                              end-to-end.yml
 │  ├─ Contract Signing                       contract-signing.yml            --stage contract
 │  ├─ Model Training in CCR                  model-training.yml              --stage train
 │  └─ Model download and provenance          model-download.yml              --stage model, receipts artifact
-└─ Tear down (teardown: scenario | all)      teardown.yml                    scope: scenario | all
-   ├─ Tear down Scenario                     teardown-scenario.yml           data providers, data consumer, CCR config → cluster
+└─ Tear down                                 teardown.yml                    scope: scenario | collaborators | all
+   ├─ Tear down Scenario                     teardown-scenario.yml           depa scenario teardown: revoke contracts, delete model outputs
+   ├─ Tear down Collaborators                teardown-collaborators.yml      data providers, data consumer, CCR config → cluster
    └─ Tear down DC services                  teardown-dc-services.yml        registry (job)
       ├─ Tear down KMS                       teardown-kms.yml
       └─ Tear down Contract Service          teardown-contract-service.yml
 ```
 
 **Combinations** (End-to-End demo inputs; a first *Plan* job checks the state blobs and fails fast
-when a skipped stage's components are missing; teardown also runs after a failed stage):
+when a skipped stage's components are missing; teardown also runs after a failed stage, and never
+touches collaborators for `scenario` or DC services unless `all`):
 
 | Use | setup_data_collab | setup_collaborators | run_scenario | teardown |
 |---|---|---|---|---|
-| Fresh demo | ✓ | ✓ | ✓ | `none` (or `all` for a throwaway run) |
-| Back-to-back scenario on a running deployment | ✗ | ✗ | ✓ (pick the scenario) | `none` |
-| New scenario on fresh collaborators, keep DC services | ✗ | ✓ | ✓ | `scenario` |
-| Scenario-only teardown | ✗ | ✗ | ✗ | `scenario` |
+| Fresh demo | ✓ | ✓ | ✓ | `none` |
+| Back-to-back scenarios on a running deployment | ✗ | ✗ | ✓ (pick the scenario) | `scenario` (revoke its contracts, delete its outputs) |
+| Fresh collaborators, keep DC services | ✗ | ✓ | ✓ | `collaborators` |
+| Throwaway run | ✓ | ✓ | ✓ | `all` |
+| Collaborators-only teardown | ✗ | ✗ | ✗ | `collaborators` |
 | Full teardown | ✗ | ✗ | ✗ | `all` |
 
+Teardown scopes: `scenario` = Tear down Scenario; `collaborators` = Tear down Scenario, then Tear
+down Collaborators; `all` = both, then Tear down DC services.
 `skip_cleanroom_build` (with `setup_data_collab`) reuses the latest clean-room release manifests.
-**Tear down** run on its own takes the same `scope` (`scenario` | `all`). `depa_version`
+**Tear down** run on its own takes the same scopes (`scenario` needs a scenario; with
+`collaborators`/`all` the scenario is optional). `depa_version`
 (End-to-End demo and the Run Scenario tree) installs the CLI from the GitHub Release
 `v<version>` (checksum-verified wheels) instead of building it from the checkout.
 
@@ -262,8 +269,9 @@ environment `pypi`, and set the repository variable `PUBLISH_PYPI=true`.
   SDK's `<uri><dataset name>/<version>/` lands there. Its broker grants `dataset:<party>/*`
   (any dataset of that owner, ciphertext only: keys are still released per dataset by the KMS).
 - Demo deployment only: the deployment principal gets *Storage Blob Data Contributor* on TDP data accounts
-  and *Storage Blob Data Reader* on TDC output accounts (`operator_object_ids`) because the
-  workflows act for every party; clean rooms themselves only ever use broker-issued SAS.
+  and TDC output accounts (`operator_object_ids`) because the workflows act for every party
+  (upload datasets, download models, delete a scenario's outputs on Tear down Scenario); clean
+  rooms themselves only ever use broker-issued SAS.
 - Demo deployment only: the KMS and CS Key Vaults use firewall default action `Allow`
   (`key_vault_network_default_action`), because GitHub-hosted runners have changing egress IPs
   and Terraform reads the vault certificates while refreshing state. Data-plane access still

@@ -3,7 +3,8 @@ name: Run Scenario
 # One scenario end to end on the deployed collaborative, acting for every demo party (keys from
 # the DEPA_PARTY_KEYS secret; the scenario's providers map onto tdp-1..tdp-4, its consumer onto
 # tdc): register -> keys and policies -> contract signing -> training in the clean room -> model
-# download and provenance. Needs "Setup Data Collab" and "Setup Training Collaborators".
+# download and provenance. Needs "Setup Data Collab" and "Setup Training Collaborators" (a
+# Preflight job checks their state first).
 on:
   workflow_dispatch:
     inputs:
@@ -43,8 +44,48 @@ on:
 permissions: {}
 
 jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      SCENARIO: ${{ inputs.scenario }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Check deployment
+        run: |
+          [[ "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ && -f "scenarios/${SCENARIO}/contract.yaml" ]] \
+            || { echo "::error::no scenario scenarios/${SCENARIO}"; exit 1; }
+          has() { [[ "$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" "$1")" != "{}" ]]; }
+          missing=()
+          for c in kms contract-service; do has "${c}" || missing+=("${c}: run Setup Data Collab first"); done
+          # The scenario's providers map onto tdp-1..tdp-<n>.
+          n="$(sed -n 's/^[[:space:]]*tdps:[[:space:]]*\[\(.*\)\].*/\1/p' "scenarios/${SCENARIO}/contract.yaml" | tr ',' '\n' | grep -c '[^[:space:]]' || true)"
+          collaborators=(data-consumer ccr-provider-cluster ccr-provider-config)
+          for i in $(seq 1 "${n:-0}"); do collaborators+=("data-provider-tdp-${i}"); done
+          for c in "${collaborators[@]}"; do has "${c}" || missing+=("${c}: run Setup Training Collaborators first"); done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            for m in "${missing[@]}"; do echo "::error::not deployed: ${m}"; done
+            exit 1
+          fi
+          echo "### Preflight: ${SCENARIO} needs ${n} data provider(s); all components deployed" >>"${GITHUB_STEP_SUMMARY}"
+
   register:
     name: Register collaborators and artefacts
+    needs: preflight
     uses: ./.github/workflows/register-collaborators.yml
     permissions:
       contents: read

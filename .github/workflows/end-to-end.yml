@@ -4,9 +4,11 @@ name: End-to-End demo
 #   Setup Data Collab -> Setup Training Collaborators -> Run Scenario -> Tear down
 # Each stage has a toggle; a skipped stage does not block the next one (its components must then
 # already exist, which the Plan job checks in the state blobs before anything runs). Teardown:
-#   none      keep everything
-#   scenario  Tear down Scenario only (collaborator resources); DC services stay up for the next run
-#   all       Tear down Scenario, then Tear down DC services
+#   none           keep everything
+#   scenario       Tear down Scenario: revoke the scenario's contracts, delete its model outputs;
+#                  collaborators and DC services stay up for the next scenario
+#   collaborators  Tear down Scenario, then Tear down Collaborators (providers, consumer, CCR provider)
+#   all            the above, then Tear down DC services
 # Teardown also runs after a failed stage. Every job runs in the chosen GitHub environment, whose
 # protection rules (reviewers) gate it.
 on:
@@ -47,9 +49,9 @@ on:
         type: string
         default: ""
       teardown:
-        description: "Tear down afterwards: none · scenario (collaborators only) · all"
+        description: "Tear down afterwards: none · scenario · collaborators · all"
         type: choice
-        options: [none, scenario, all]
+        options: [none, scenario, collaborators, all]
         default: none
   workflow_call:
     inputs:
@@ -119,16 +121,17 @@ jobs:
         run: |
           errors=()
           has() { [[ "$(deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" "$1")" != "{}" ]]; }
-          [[ "${TEARDOWN}" =~ ^(none|scenario|all)$ ]] || errors+=("teardown must be none, scenario or all")
+          [[ "${TEARDOWN}" =~ ^(none|scenario|collaborators|all)$ ]] || errors+=("teardown must be none, scenario, collaborators or all")
           [[ "${PLATFORM}" =~ ^(aks|gcp)$ ]] || errors+=("platform must be aks or gcp")
-          if [[ "${RUN_SCENARIO}" == true ]]; then
+          if [[ "${RUN_SCENARIO}" == true || "${TEARDOWN}" != none ]]; then
             [[ "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ && -f "scenarios/${SCENARIO}/contract.yaml" ]] || errors+=("no scenario '${SCENARIO}'")
           fi
           if [[ "${SKIP_CLEANROOM_BUILD}" == true && "${SETUP_DATA_COLLAB}" != true ]]; then
             echo "::notice::skip_cleanroom_build only applies with setup_data_collab; ignored"
           fi
           # Stages that are skipped must already be deployed.
-          if [[ "${SETUP_DATA_COLLAB}" != true && ( "${SETUP_COLLABORATORS}" == true || "${RUN_SCENARIO}" == true ) ]]; then
+          # (Tear down Scenario also needs the DC services.)
+          if [[ "${SETUP_DATA_COLLAB}" != true && ( "${SETUP_COLLABORATORS}" == true || "${RUN_SCENARIO}" == true || "${TEARDOWN}" != none ) ]]; then
             for c in kms contract-service; do has "${c}" || errors+=("setup_data_collab=false needs the ${c} component, which has no state"); done
           fi
           if [[ "${SETUP_COLLABORATORS}" != true && "${RUN_SCENARIO}" == true ]]; then
@@ -196,8 +199,24 @@ jobs:
   teardown-scenario:
     name: Tear down Scenario
     needs: [plan, collab, collaborators, scenario]
-    if: ${{ always() && needs.plan.result == 'success' && (inputs.teardown == 'scenario' || inputs.teardown == 'all') }}
+    if: ${{ always() && needs.plan.result == 'success' && inputs.teardown != 'none' }}
     uses: ./.github/workflows/teardown-scenario.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      scenario: ${{ inputs.scenario }}
+      platform: ${{ inputs.platform }}
+      depa_version: ${{ inputs.depa_version }}
+    secrets: inherit
+
+  teardown-collaborators:
+    name: Tear down Collaborators
+    needs: [plan, teardown-scenario]
+    if: ${{ always() && needs.plan.result == 'success' && (inputs.teardown == 'collaborators' || inputs.teardown == 'all') }}
+    uses: ./.github/workflows/teardown-collaborators.yml
     permissions:
       contents: read
       id-token: write
@@ -207,8 +226,8 @@ jobs:
 
   teardown-dc-services:
     name: Tear down DC services
-    needs: [plan, teardown-scenario]
-    if: ${{ always() && needs.plan.result == 'success' && inputs.teardown == 'all' && needs.teardown-scenario.result == 'success' }}
+    needs: [plan, teardown-collaborators]
+    if: ${{ always() && needs.plan.result == 'success' && inputs.teardown == 'all' && needs.teardown-collaborators.result == 'success' }}
     uses: ./.github/workflows/teardown-dc-services.yml
     permissions:
       contents: read

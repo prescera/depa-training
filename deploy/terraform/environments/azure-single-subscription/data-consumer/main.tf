@@ -53,7 +53,8 @@ module "outputs" {
   tags = merge(module.naming.tags, { party = local.party })
 }
 
-# Demo only: the workflows upload the consumer's dataset and download the encrypted model.
+# Demo only: the workflows upload the consumer's dataset, download the encrypted model and, on
+# Tear down Scenario, delete the scenario's outputs.
 resource "azurerm_role_assignment" "operator_dataset_upload" {
   for_each = toset(var.operator_object_ids)
 
@@ -62,10 +63,10 @@ resource "azurerm_role_assignment" "operator_dataset_upload" {
   principal_id         = each.value
 }
 
-resource "azurerm_role_assignment" "operator_output_read" {
+resource "azurerm_role_assignment" "operator_output_manage" {
   for_each = toset(var.operator_object_ids)
 
   scope                = module.outputs.storage_account_id
-  role_definition_name = "Storage Blob Data Reader"
+  role_definition_name = "Storage Blob Data Contributor"
   principal_id         = each.value
 }

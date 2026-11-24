@@ -1,7 +1,8 @@
 name: Tear down Scenario
 
-# Destroys the training collaborators: data providers, data consumer, clean-room cluster
-# configuration and then the cluster. Components without state are skipped.
+# Removes one scenario's run artefacts from the deployed collaborative: revokes its contracts and
+# deletes its model outputs (`depa scenario teardown`). Collaborators, datasets and keys stay, so
+# the next scenario can run straight away. No Terraform.
 on:
   workflow_dispatch:
     inputs:
@@ -9,189 +10,89 @@ on:
         description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
+      depa_version:
+        description: depa CLI release to install (e.g. 2.0.0); empty = build from this checkout
+        type: string
+        default: ""
+      scenario:
+        description: Scenario (scenarios/<name>)
+        type: choice
+        options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
+        default: credit-risk
+      platform:
+        description: "Clean-room platform: aks (confidential ACI) or gcp (Confidential Space)"
+        type: choice
+        options: [aks, gcp]
+        default: aks
   workflow_call:
     inputs:
       environment:
         type: string
         required: true
+      depa_version:
+        type: string
+        default: ""
+      scenario:
+        type: string
+        required: true
+      platform:
+        type: string
+        default: aks
 
 permissions: {}
 
-concurrency:
-  group: teardown-scenario-${{ inputs.environment }}
-  cancel-in-progress: false
-
 jobs:
-  providers:
-    name: Tear down Data Provider (${{ matrix.party }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    environment: ${{ inputs.environment }}
-    strategy:
-      fail-fast: false
-      matrix:
-        party: [tdp-1, tdp-2, tdp-3, tdp-4]
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
-      DEPLOY_ENV: ${{ inputs.environment }}
-      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - id: tf
-        uses: ./.github/actions/azure-terraform
-        with:
-          environment: ${{ inputs.environment }}
-          component: data-provider
-          party: ${{ matrix.party }}
-          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
-          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
-          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
-          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Destroy
-        if: steps.tf.outputs.state-exists == 'true'
-        env:
-          DIR: ${{ steps.tf.outputs.dir }}
-        run: |
-          # Placeholders: destroy does not use the KMS keys or issuer.
-          jq -n '{kms_oidc_issuer_url: "https://teardown.invalid/app/oidc",
-                  kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
-          terraform -chdir="${DIR}" destroy -no-color -auto-approve
-
-  consumer:
-    name: Tear down Data Consumer
+  teardown:
+    name: Tear down Scenario
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
+      actions: read
     env:
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
       NAME_PREFIX: ${{ vars.NAME_PREFIX }}
       DEPLOY_ENV: ${{ inputs.environment }}
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      SCENARIO: ${{ inputs.scenario }}
+      PLATFORM: ${{ inputs.platform }}
+      GCP_PROJECT: ${{ inputs.platform == 'gcp' && vars.GCP_PROJECT || '' }}
+      GCP_ZONE: ${{ vars.GCP_ZONE }}
+      GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      GCP_SUBNET: ${{ vars.GCP_SUBNET }}
     steps:
+      - name: Check inputs
+        run: |
+          [[ "${PLATFORM}" == aks || "${PLATFORM}" == gcp ]] || { echo "::error::platform must be aks or gcp"; exit 1; }
+          [[ "${SCENARIO}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::invalid scenario name"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: tf
-        uses: ./.github/actions/azure-terraform
+      - id: cli
+        uses: ./.github/actions/depa-cli
         with:
           environment: ${{ inputs.environment }}
-          component: data-consumer
-          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
-          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
-          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Destroy
-        if: steps.tf.outputs.state-exists == 'true'
+          party-keys: ${{ secrets.DEPA_PARTY_KEYS }}
+          github-token: ${{ github.token }}
+          releases: "false"
+          trainer-stack-for: ""
+          kubelogin: "false"
+          depa-version: ${{ inputs.depa_version }}
+      - name: Tear down Scenario
         env:
-          DIR: ${{ steps.tf.outputs.dir }}
+          ENV_FILE: ${{ steps.cli.outputs.env-file }}
         run: |
-          # Placeholders: destroy does not use the KMS keys or issuer.
-          jq -n '{kms_oidc_issuer_url: "https://teardown.invalid/app/oidc",
-                  kms_jwks_json: ({keys: [{kty: "EC", crv: "P-256", kid: "teardown", x: "", y: ""}]} | tojson)}' >"${DIR}/broker.auto.tfvars.json"
-          terraform -chdir="${DIR}" destroy -no-color -auto-approve
-
-  ccr-config:
-    name: Tear down CCR provider config
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    environment: ${{ inputs.environment }}
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
-      DEPLOY_ENV: ${{ inputs.environment }}
-      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - id: tf
-        uses: ./.github/actions/azure-terraform
-        with:
-          environment: ${{ inputs.environment }}
-          component: ccr-provider-config
-          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
-          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
-          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
-          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Install kubelogin
-        run: sudo az aks install-cli --only-show-errors >/dev/null
-      - name: Cluster input
-        if: steps.tf.outputs.state-exists == 'true'
-        env:
-          DIR: ${{ steps.tf.outputs.dir }}
-        run: |
-          deploy/scripts/state-outputs.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" ccr-provider-cluster \
-            | jq '{cluster: {resource_group_name, cluster_name, aci_resource_group_name, aci_subnet_name, acr_pull_identity}}' \
-            >"${DIR}/inputs.auto.tfvars.json"
-      - name: Destroy
-        if: steps.tf.outputs.state-exists == 'true'
-        env:
-          DIR: ${{ steps.tf.outputs.dir }}
-        run: |
-          terraform -chdir="${DIR}" destroy -no-color -auto-approve
-
-  ccr-cluster:
-    name: Tear down CCR provider cluster
-    needs: ccr-config
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    environment: ${{ inputs.environment }}
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-      AZURE_REGION_SHORT: ${{ vars.AZURE_REGION_SHORT }}
-      NAME_PREFIX: ${{ vars.NAME_PREFIX }}
-      DEPLOY_ENV: ${{ inputs.environment }}
-      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - id: tf
-        uses: ./.github/actions/azure-terraform
-        with:
-          environment: ${{ inputs.environment }}
-          component: ccr-provider-cluster
-          services-ref: ${{ vars.DEPA_SERVICES_REF || 'main' }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          aks-admin-group-object-id: ${{ secrets.AKS_ADMIN_GROUP_OBJECT_ID }}
-          deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
-          tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
-          tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Destroy
-        if: steps.tf.outputs.state-exists == 'true'
-        env:
-          DIR: ${{ steps.tf.outputs.dir }}
-        run: |
-          terraform -chdir="${DIR}" destroy -no-color -auto-approve
+          mkdir -p "${RUNNER_TEMP}/work"
+          DEPA_STORAGE_TOKEN="$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)"
+          export DEPA_STORAGE_TOKEN
+          set -o pipefail
+          depa --json scenario teardown "${SCENARIO}" --env "${ENV_FILE}" --work-dir "${RUNNER_TEMP}/work" \
+            --output-token-env DEPA_STORAGE_TOKEN | tee "${RUNNER_TEMP}/teardown.json"
+          { echo "### Tear down Scenario (${SCENARIO})"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/teardown.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
