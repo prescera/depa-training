@@ -29,6 +29,7 @@ scenarios/*/data/preprocessed/
 
 # Terraform state, plans and local variables
 **/.terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfplan
