@@ -28,11 +28,20 @@ check() {
   fi
 }
 
-mapfile -t acl < <(az provider show --namespace Microsoft.ConfidentialLedger \
-  --query "resourceTypes[?resourceType=='ledgers'].locations[]" -o tsv)
+# Resource type names are registered with provider-specific casing ("Ledgers"); match any case.
+mapfile -t acl < <(az provider show --namespace Microsoft.ConfidentialLedger -o json \
+  | jq -r '.resourceTypes[] | select(.resourceType | ascii_downcase == "ledgers") | .locations[]')
+if [[ "${#acl[@]}" -eq 0 ]]; then
+  echo "ERROR could not read Azure Confidential Ledger locations from the resource provider" >&2
+  exit 2
+fi
 check "Azure Confidential Ledger" "${acl[@]}"
 
 mapfile -t flex < <(az functionapp list-flexconsumption-locations --query "[].name" -o tsv)
+if [[ "${#flex[@]}" -eq 0 ]]; then
+  echo "ERROR could not read Functions Flex Consumption locations" >&2
+  exit 2
+fi
 check "Functions Flex Consumption" "${flex[@]}"
 
 check "AKS virtual nodes v2 confidential pods" "${VN2_CONFIDENTIAL_REGIONS[@]}"
