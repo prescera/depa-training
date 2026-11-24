@@ -121,3 +121,14 @@ variable "tags" {
   description = "Extra tags."
   default     = {}
 }
+
+variable "key_vault_network_default_action" {
+  type        = string
+  description = "Firewall default action of the KMS and CS Key Vaults. Allow: GitHub-hosted runners have changing egress IPs (data-plane access still requires Entra RBAC). Use Deny with operator_ip_ranges or a self-hosted runner subnet for anything beyond a pilot."
+  default     = "Allow"
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.key_vault_network_default_action)
+    error_message = "key_vault_network_default_action must be Allow or Deny."
+  }
+}

@@ -53,6 +53,7 @@ module "kms" {
   resource_group_name                = "${var.name_prefix}-dc-kms-rg"
   gateway_hostname                   = coalesce(var.kms_gateway_hostname, "kms.${var.name_prefix}.internal")
   key_vault_allowed_ip_ranges        = var.operator_ip_ranges
+  key_vault_network_default_action   = var.key_vault_network_default_action
   ledger_administrator_principal_ids = var.ledger_administrator_principal_ids
   tags                               = merge(local.tags, { party = "dc" })
 }
@@ -68,6 +69,7 @@ module "contract_service" {
   resource_group_name                = "${var.name_prefix}-dc-cs-rg"
   enable_gateway                     = false
   key_vault_allowed_ip_ranges        = var.operator_ip_ranges
+  key_vault_network_default_action   = var.key_vault_network_default_action
   ledger_administrator_principal_ids = var.ledger_administrator_principal_ids
   tags                               = merge(local.tags, { party = "dc" })
 }

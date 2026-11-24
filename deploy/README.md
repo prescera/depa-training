@@ -193,6 +193,11 @@ deploy/scripts/render-env.sh --parties-json parties.json --keys-dir ./pilot-keys
 - Pilot only: the deployment principal gets *Storage Blob Data Contributor* on TDP data accounts
   and *Storage Blob Data Reader* on TDC output accounts (`operator_object_ids`) because the
   workflows act for every party; clean rooms themselves only ever use broker-issued SAS.
+- Pilot only: the KMS and CS Key Vaults use firewall default action `Allow`
+  (`key_vault_network_default_action`), because GitHub-hosted runners have changing egress IPs
+  and Terraform reads the vault certificates while refreshing state. Data-plane access still
+  requires Entra RBAC. Production keeps `Deny` and runs Terraform from an allowed IP range or a
+  self-hosted runner in an allowed subnet.
 - Egress from clean rooms is allowed to `AzureCloud.<region>` on 443 because ACL has no service
   tag (defence in depth only; the CCR is the boundary).
 - ACL user-defined endpoints (custom JS apps) must be available in the chosen region.

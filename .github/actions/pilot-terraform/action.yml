@@ -128,3 +128,16 @@ runs:
             -backend-config="use_azuread_auth=true" \
             -backend-config="use_oidc=true"
         done
+
+        # The pilot runs the DC Key Vaults with firewall default action Allow
+        # (key_vault_network_default_action): GitHub-hosted runners have changing egress IPs, and
+        # Terraform reads the vault certificates while refreshing state, before it could change
+        # the firewall. Vaults created by earlier versions defaulted to Deny; set it through
+        # the control plane, which the vault firewall does not cover (idempotent).
+        for rg in "${PILOT_NAME_PREFIX}-dc-kms-rg" "${PILOT_NAME_PREFIX}-dc-cs-rg"; do
+          [[ "$(az group exists --name "${rg}")" == "true" ]] || continue
+          for kv in $(az keyvault list --resource-group "${rg}" --query "[].name" -o tsv); do
+            echo "Setting Key Vault ${kv} firewall default action to Allow (pilot)"
+            az keyvault update --name "${kv}" --resource-group "${rg}" --default-action Allow --output none
+          done
+        done
