@@ -25,6 +25,10 @@ if [[ "${exists}" != "true" ]]; then
   echo '{}'
   exit 0
 fi
+# Download to a file: the storage SDK needs a seekable target, so --file /dev/stdout fails when
+# stdout is a pipe ("Target stream handle must be seekable").
+tmp="$(mktemp)"
+trap 'rm -f "${tmp}"' EXIT
 az storage blob download --auth-mode login --account-name "${account}" --container-name "${container}" \
-  --name "${key}" --file /dev/stdout --no-progress --only-show-errors \
-  | jq -c '(.outputs // {}) | map_values(.value)'
+  --name "${key}" --file "${tmp}" --no-progress --only-show-errors >/dev/null
+jq -c '(.outputs // {}) | map_values(.value)' "${tmp}"
