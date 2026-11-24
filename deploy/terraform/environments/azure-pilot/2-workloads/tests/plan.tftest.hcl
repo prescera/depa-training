@@ -33,13 +33,13 @@ variables {
     kms = {
       ledger_name               = "pilot1-kms-cin"
       ledger_endpoint           = "https://pilot1-kms-cin.confidential-ledger.azure.com"
-      identity_service_endpoint = "https://identity.confidential-ledger.core.azure.com"
+      identity_service_endpoint = "https://identity.confidential-ledger.core.azure.com/ledgerIdentity/pilot1-kms-cin"
       resource_group_name       = "pilot1-dc-kms-rg"
     }
     cs = {
       ledger_name               = "pilot1-cs-cin"
       ledger_endpoint           = "https://pilot1-cs-cin.confidential-ledger.azure.com"
-      identity_service_endpoint = "https://identity.confidential-ledger.core.azure.com"
+      identity_service_endpoint = "https://identity.confidential-ledger.core.azure.com/ledgerIdentity/pilot1-cs-cin"
       resource_group_name       = "pilot1-dc-cs-rg"
     }
     registry = {
