@@ -15,7 +15,7 @@ The broker verifies the token against the **pinned** KMS JWKS (ES256 only, `kid`
 r‖s signature), `iss` = `oidc_issuer_url`, `aud` = `audience`, `exp`/`nbf`/`iat` with 30 s
 leeway, lifetime ≤ 1 h, and `sub` ∈ configured grants (exact, or an owner wildcard
 `dataset:<owner>/*` matching `dataset:<owner>/<name>` for a container that holds all of that
-owner's datasets, as in the Azure pilot). It answers **401** for any token
+owner's datasets, as in the single-subscription Azure deployment). It answers **401** for any token
 problem (no detail), **403** for a valid token whose `sub` is not configured, otherwise a
 **user-delegation SAS** on the grant's container: `sp=rl` for `dataset:<id>`, `sp=cw` for
 `output:<party>`, `spr=https`, expiry = min(token `exp`, now + `sas_max_ttl_seconds`). Every
@@ -31,7 +31,8 @@ Application Insights.
   (shared keys disabled) and *Monitoring Metrics Publisher* on Application Insights (local
   auth disabled). No data access.
 - Flex Consumption plan (FC1) + Linux Function app, Python 3.12, HTTPS only, TLS 1.2, basic
-  publishing auth disabled, code deployed from `package_path`.
+  publishing auth disabled. The code is deployed after `terraform apply` with
+  `deploy/scripts/deploy-brokers.sh` (Entra-authenticated, so basic auth stays off).
 - Log Analytics workspace (unless one is passed) + workspace-based Application Insights.
 
 ## Inputs (main)
@@ -41,7 +42,7 @@ Application Insights.
 `writer_role_definition_id`, `oidc_issuer_url`, `kms_jwks_json` (pinned), `jwks_refresh`
 (default false: on an unknown `kid`, refresh only from the issuer's discovery document, at most
 every 5 min), `audience` (default `api://depa-federation-broker/<account>`),
-`sas_max_ttl_seconds` (default 900), `package_path`, `host_storage_account_name`.
+`sas_max_ttl_seconds` (default 900), `host_storage_account_name`.
 
 Outputs: `broker_url`, `audience` (descriptor `federation.azure = {broker_url, audience}`;
 the audience also goes into the dataset Release Policy `allowed_audiences` or the KMS

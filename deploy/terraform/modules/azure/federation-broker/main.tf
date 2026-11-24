@@ -140,7 +140,6 @@ resource "azurerm_function_app_flex_consumption" "this" {
   storage_container_endpoint        = "${azurerm_storage_account.host.primary_blob_endpoint}${azurerm_storage_container.deployment.name}"
   storage_authentication_type       = "UserAssignedIdentity"
   storage_user_assigned_identity_id = azurerm_user_assigned_identity.host.id
-  zip_deploy_file                   = var.package_path
 
   https_only                                     = true
   public_network_access_enabled                  = true
@@ -180,4 +179,10 @@ resource "azurerm_function_app_flex_consumption" "this" {
     azurerm_role_assignment.host_storage,
     azurerm_role_assignment.host_telemetry,
   ]
+
+  lifecycle {
+    # Set by deploy/scripts/deploy-brokers.sh to the sha256 of the deployed package.
+    ignore_changes = [tags["depa-broker-package-sha256"]]
+  }
+
 }

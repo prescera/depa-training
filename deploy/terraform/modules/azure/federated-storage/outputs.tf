@@ -37,3 +37,8 @@ output "grants" {
     }
   }
 }
+
+output "broker_deployment" {
+  description = "Broker function app ({resource_group_name, function_app_name}) for deploy/scripts/deploy-brokers.sh, or null in entra mode."
+  value       = var.federation_mode == "broker" ? module.broker[0].deployment : null
+}

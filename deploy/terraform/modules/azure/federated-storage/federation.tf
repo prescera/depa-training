@@ -30,7 +30,6 @@ module "broker" {
     }
   }
   writer_role_definition_id  = local.has_write ? azurerm_role_definition.blob_writer[0].role_definition_resource_id : null
-  package_path               = var.broker.package_path
   kms_jwks_json              = var.broker.kms_jwks_json
   host_storage_account_name  = var.broker.host_storage_account_name
   audience                   = var.broker.audience

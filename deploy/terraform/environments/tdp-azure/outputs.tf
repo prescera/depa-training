@@ -17,3 +17,8 @@ output "storage_account_name" {
   description = "Upload target account for the encrypted dataset objects."
   value       = module.tdp_storage.storage_account_name
 }
+
+output "broker_deployment" {
+  description = "Broker function app to deploy the package to: deploy/scripts/deploy-brokers.sh --resource-group <resource_group_name> --name <function_app_name>."
+  value       = module.tdp_storage.broker_deployment
+}

@@ -18,7 +18,6 @@ output_storage_account_name = "fintechxprodcinout"
 
 # Federation broker (spec §10.1; default while the KMS signs ES256 only).
 # Build: ../../../modules/azure/federation-broker/build-package.sh  -> prints the zip path
-broker_package_path              = "../../../modules/azure/federation-broker/dist/federation-broker-<hash>.zip"
 broker_host_storage_account_name = "fintechxbrokerprod"
 # Pinned KMS JWKS: curl -s https://kms.dc.example.org/app/oidc/jwks
 kms_jwks_json = <<-EOT

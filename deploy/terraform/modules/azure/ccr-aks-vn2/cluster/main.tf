@@ -17,14 +17,15 @@ locals {
 # the microsoft.containerinstance.virtualnode.ccepolicy annotation becomes a Confidential
 # container group whose SEV-SNP HOST_DATA is sha256(policy).
 resource "helm_release" "virtual_node" {
-  name             = "virtualnode"
-  repository       = "https://microsoft.github.io/virtualnodesOnAzureContainerInstances"
-  chart            = "virtualnode"
-  version          = var.vn2_chart_version
-  namespace        = var.vn2_namespace
-  create_namespace = true
-  atomic           = true
-  timeout          = 900
+  name       = "virtualnode"
+  repository = "https://microsoft.github.io/virtualnodesOnAzureContainerInstances"
+  chart      = "virtualnode"
+  version    = var.vn2_chart_version
+  # As in DEPA-inferencing: the release lives in "default" and the chart creates its own
+  # namespace from the `namespace` value; letting Helm create it as well fails with
+  # "namespaces ... already exists".
+  atomic  = true
+  timeout = 900
 
   values = [yamlencode({
     namespace                       = var.vn2_namespace

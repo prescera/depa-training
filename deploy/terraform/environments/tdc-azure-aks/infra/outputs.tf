@@ -32,3 +32,8 @@ output "output_allowed_audience" {
   description = "Audience to include in the KMS allowed_audiences_global (set_oidc_settings)."
   value       = module.output_storage.audience
 }
+
+output "broker_deployment" {
+  description = "Output-storage broker function app: deploy/scripts/deploy-brokers.sh --resource-group <resource_group_name> --name <function_app_name>."
+  value       = module.output_storage.broker_deployment
+}

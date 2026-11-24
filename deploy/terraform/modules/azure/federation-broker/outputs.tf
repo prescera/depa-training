@@ -22,3 +22,11 @@ output "application_insights_id" {
   description = "Application Insights resource receiving the SAS issuance log."
   value       = azurerm_application_insights.this.id
 }
+
+output "deployment" {
+  description = "Function app to deploy the broker package to with deploy/scripts/deploy-brokers.sh."
+  value = {
+    resource_group_name = var.resource_group_name
+    function_app_name   = azurerm_function_app_flex_consumption.this.name
+  }
+}

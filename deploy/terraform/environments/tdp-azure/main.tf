@@ -16,7 +16,6 @@ module "tdp_storage" {
   allowed_ip_rules     = var.allowed_ip_rules
   federation_mode      = var.federation_mode
   broker = var.federation_mode == "broker" ? {
-    package_path              = var.broker_package_path
     kms_jwks_json             = var.kms_jwks_json
     host_storage_account_name = var.broker_host_storage_account_name
   } : null

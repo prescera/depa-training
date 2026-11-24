@@ -55,7 +55,6 @@ variables {
   oidc_issuer_url      = "https://kms.example.org/app/oidc"
   party_id             = "fintech-x"
   broker = {
-    package_path              = "dist/federation-broker-000000000000.zip"
     kms_jwks_json             = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"kid\":\"k1\",\"x\":\"x\",\"y\":\"y\"}]}"
     host_storage_account_name = "fintechxbroker01"
   }

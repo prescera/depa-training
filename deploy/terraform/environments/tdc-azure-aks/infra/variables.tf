@@ -89,11 +89,6 @@ variable "federation_mode" {
   default     = "broker"
 }
 
-variable "broker_package_path" {
-  type        = string
-  description = "Federation broker package built by modules/azure/federation-broker/build-package.sh (broker mode)."
-  default     = null
-}
 
 variable "kms_jwks_json" {
   type        = string

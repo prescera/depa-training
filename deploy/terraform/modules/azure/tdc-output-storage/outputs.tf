@@ -28,3 +28,8 @@ output "output_location" {
     }
   }
 }
+
+output "broker_deployment" {
+  description = "Broker function app ({resource_group_name, function_app_name}) for deploy/scripts/deploy-brokers.sh, or null in entra mode."
+  value       = module.storage.broker_deployment
+}

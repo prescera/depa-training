@@ -116,11 +116,6 @@ variable "sas_max_ttl_seconds" {
   }
 }
 
-variable "package_path" {
-  type        = string
-  description = "Path of the Function package built by build-package.sh (content-addressed file name, so a code change redeploys)."
-}
-
 variable "host_storage_account_name" {
   type        = string
   description = "Globally unique name of the Function host/deployment storage account (3-24 lowercase alphanumerics). Separate from the data account."

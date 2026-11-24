@@ -153,7 +153,6 @@ variable "federation_mode" {
 
 variable "broker" {
   type = object({
-    package_path               = string
     kms_jwks_json              = string
     host_storage_account_name  = string
     audience                   = optional(string)

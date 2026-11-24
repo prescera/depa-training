@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the deployable Function package: code + hash-locked dependencies for Linux x86_64 /
 # CPython 3.12 (Flex Consumption), as a deterministic zip named after its content hash.
-#   ./build-package.sh [OUT_DIR]      -> prints the zip path (pass it as package_path)
+#   ./build-package.sh [OUT_DIR]      -> prints the zip path (deploy it with deploy/scripts/deploy-brokers.sh)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 out_dir="$(realpath -m "${1:-${here}/dist}")"

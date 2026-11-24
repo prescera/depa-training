@@ -135,7 +135,6 @@ variable "federation_mode" {
 
 variable "broker" {
   type = object({
-    package_path               = string
     kms_jwks_json              = string
     host_storage_account_name  = string
     audience                   = optional(string)
@@ -143,7 +142,7 @@ variable "broker" {
     sas_max_ttl_seconds        = optional(number, 900)
     log_analytics_workspace_id = optional(string)
   })
-  description = "Federation broker settings, required in broker mode: package_path (from modules/azure/federation-broker/build-package.sh), the pinned KMS JWKS, and a globally unique host storage account name."
+  description = "Federation broker settings, required in broker mode: the pinned KMS JWKS, and a globally unique host storage account name."
   default     = null
 
   validation {

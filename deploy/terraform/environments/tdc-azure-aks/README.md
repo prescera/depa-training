@@ -24,10 +24,14 @@ cd deploy/terraform/environments/tdc-azure-aks
 
 # 1. Azure infrastructure
 cd infra
-../../../modules/azure/federation-broker/build-package.sh   # output-storage SAS broker (spec §10.1)
-cp terraform.tfvars.example terraform.tfvars          # edit; broker_package_path = printed path
+cp terraform.tfvars.example terraform.tfvars          # edit
 terraform init && terraform plan -out tfplan && terraform apply tfplan
 terraform output                                        # values for phase 2
+# Output-storage SAS broker code (spec §10.1), deployed with Entra auth
+pkg="$(../../../modules/azure/federation-broker/build-package.sh)"
+../../../../scripts/deploy-brokers.sh --package "$pkg" \
+  --resource-group "$(terraform output -json broker_deployment | jq -r .resource_group_name)" \
+  --name "$(terraform output -json broker_deployment | jq -r .function_app_name)"
 
 # 2. In-cluster configuration (needs network access to the API server)
 cd ../cluster

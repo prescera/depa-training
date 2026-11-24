@@ -24,13 +24,17 @@ native federated identities once the KMS issues RS256. Uses
 
 ```bash
 cd deploy/terraform/environments/tdp-azure
-../../modules/azure/federation-broker/build-package.sh   # prints dist/federation-broker-<hash>.zip
-cp terraform.tfvars.example terraform.tfvars   # edit values; broker_package_path = printed path
+cp terraform.tfvars.example terraform.tfvars   # edit values
 # optional: uncomment the azurerm backend in versions.tf
 terraform init
 terraform plan -out tfplan
 terraform apply tfplan
 terraform output -json datasets
+# Deploy the SAS broker code (Entra-authenticated; basic publishing auth stays disabled)
+pkg="$(../../modules/azure/federation-broker/build-package.sh)"
+../../../scripts/deploy-brokers.sh --package "$pkg" \
+  --resource-group "$(terraform output -json broker_deployment | jq -r .resource_group_name)" \
+  --name "$(terraform output -json broker_deployment | jq -r .function_app_name)"
 ```
 
 Uploading in step 2 below needs *Storage Blob Data Contributor* for your own
