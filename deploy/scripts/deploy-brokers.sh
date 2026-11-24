@@ -67,18 +67,31 @@ deploy_one() {
   fi
   log "${app}: SCM host ${scm}"
 
-  log "${app}: deploying package ${sha:0:12}"
-  code="$(curl -sS -o "${tmp}/resp" -w '%{http_code}' -X POST \
-    "https://${scm}/api/publish?RemoteBuild=false&Deployer=depa" \
-    -H "Authorization: Bearer ${token}" -H "Content-Type: application/zip" \
-    --data-binary "@${package}")"
-  [[ "${code}" == 200 || "${code}" == 202 ]] || { cat "${tmp}/resp" >&2; die "${app}: publish returned HTTP ${code}"; }
+  # Retry transient failures of the deployment service (5xx, 429, and the 400 it returns when
+  # its own upload to the deployment storage account times out: BlobUploadFailedException).
+  local attempt
+  for attempt in 1 2 3 4; do
+    log "${app}: deploying package ${sha:0:12} (attempt ${attempt})"
+    code="$(curl -sS -o "${tmp}/resp" -w '%{http_code}' -X POST \
+      "https://${scm}/api/publish?RemoteBuild=false&Deployer=depa" \
+      -H "Authorization: Bearer ${token}" -H "Content-Type: application/zip" \
+      --data-binary "@${package}" || true)"
+    [[ "${code}" == 200 || "${code}" == 202 ]] && break
+    cat "${tmp}/resp" >&2 || true
+    if [[ "${attempt}" -lt 4 ]] && { [[ "${code}" == 000 || "${code}" == 429 || "${code}" == 5* ]] \
+        || grep -q 'BlobUploadFailed' "${tmp}/resp" 2>/dev/null; }; then
+      log "${app}: transient publish failure (HTTP ${code}); retrying in $((attempt * 20)) s"
+      sleep $((attempt * 20))
+      continue
+    fi
+    die "${app}: publish returned HTTP ${code}"
+  done
 
   # Deployment status: 4 success, 3 failed, -1 cancelled, 5 superseded, 6 partially successful.
   for _ in $(seq 1 180); do
     sleep 5
     code="$(curl -sS -o "${tmp}/status" -w '%{http_code}' \
-      "https://${scm}/api/deployments/latest" -H "Authorization: Bearer ${token}")"
+      "https://${scm}/api/deployments/latest" -H "Authorization: Bearer ${token}" || true)"
     [[ "${code}" == 200 || "${code}" == 202 ]] || continue
     status="$(jq -r '.status // empty' "${tmp}/status" 2>/dev/null || true)"
     case "${status}" in
