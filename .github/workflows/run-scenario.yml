@@ -1,13 +1,21 @@
-name: "5 · Run scenario: dataset keys and policies → encrypt and upload data → contract signing → clean-room training → model download"
+name: Run scenario
 
-# Runs one scenario on the deployment from workflows 1-4, acting for every demo party (keys from
-# the DEPA_PARTY_KEYS secret). The scenario's own providers are mapped onto tdp-1..tdp-4 and its
-# consumer onto tdc. Uploads the per-stage summaries and execution receipts.
+# Runs one scenario end to end on the deployment made by "Set up collaborative" and "Set up
+# collaborators", acting for every demo party (keys from the DEPA_PARTY_KEYS secret). The
+# scenario's providers map onto tdp-1..tdp-4 and its consumer onto tdc. One step per stage of
+# `depa scenario deploy --stage` (state in a shared --work-dir):
+#   Dataset keys and policies  providers create dataset keys in the KMS and set release policies
+#   Encrypt and upload data    providers encrypt (dedf/1), upload to their storage, publish to the catalogue
+#   Sign contract              consumer proposes the contract; providers verify and sign
+#   Train in clean room        consumer submits the clean-room job (AKS -> confidential ACI, or GCP
+#                              Confidential Space) and waits for it
+#   Download model             consumer downloads and decrypts the model; execution receipts verified
+# Stage summaries and receipts are uploaded as an artifact (never keys, data or the model).
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment with the Azure secrets and variables (approval gate)
+        description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
       scenario:
@@ -16,7 +24,7 @@ on:
         options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
         default: credit-risk
       platform:
-        description: "Clean-room platform: aks (Azure confidential ACI) or gcp (Confidential Space)"
+        description: "Clean-room platform: aks (confidential ACI) or gcp (Confidential Space)"
         type: choice
         options: [aks, gcp]
         default: aks
@@ -78,7 +86,7 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: Check the scenario exists
+      - name: Check scenario
         run: '[[ -f "scenarios/${SCENARIO}/contract.yaml" ]] || { echo "::error::no scenario scenarios/${SCENARIO}"; exit 1; }'
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         if: inputs.platform == 'gcp'
@@ -87,32 +95,36 @@ jobs:
           service_account: ${{ vars.GCP_SUBMITTER_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         if: inputs.platform == 'gcp'
-      - name: Install the depa CLI (hash-locked)
+      - name: Install depa CLI
         run: |
           python -m pip install --require-hashes --no-deps -r ccr/requirements/agent.txt
           python -m pip install --no-deps ./trainers ./sdk/python
-      - name: Install kubelogin (Entra-only AKS)
+      - name: Install kubelogin
         run: sudo az aks install-cli --only-show-errors >/dev/null
-      # Same run first (end-to-end.yml builds the images earlier in this run), else the latest
-      # artifact of a standalone workflow 4 run.
+      # Release manifests from this run first (end-to-end.yml), else from the latest
+      # "Set up collaborative" run.
       - id: releases_this_run
+        name: Get release manifests (this run)
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ccr-releases-${{ inputs.environment }}
+          pattern: ccr-releases-${{ inputs.environment }}-*
+          merge-multiple: true
           path: ${{ runner.temp }}/releases
-      - name: Clean-room release manifests from the latest workflow 4 run
+      - name: Get release manifests
         if: steps.releases_this_run.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOY_ENV: ${{ inputs.environment }}
         run: |
-          name="ccr-releases-${DEPLOY_ENV}"
-          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=20" \
-            --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')"
-          [[ -n "${run_id}" ]] || { echo "::error::no ${name} artifact; run workflow 4 (clean-room images) first"; exit 1; }
-          gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" --name "${name}" --dir "${RUNNER_TEMP}/releases"
-      - name: Render depa-env.yaml from the Terraform outputs; restore the party keys
+          for family in classic torch llm; do
+            name="ccr-releases-${DEPLOY_ENV}-${family}"
+            run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=20" \
+              --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')"
+            [[ -n "${run_id}" ]] || { echo "::error::no ${name} artifact; run \"Set up collaborative\" first"; exit 1; }
+            gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" --name "${name}" --dir "${RUNNER_TEMP}/releases"
+          done
+      - name: Render environment file
         env:
           DEPA_PARTY_KEYS: ${{ secrets.DEPA_PARTY_KEYS }}
         run: |
@@ -120,11 +132,11 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/releases"
           deploy/scripts/render-env.sh --parties-json "${RUNNER_TEMP}/demo-parties.json" \
             --keys-dir "${RUNNER_TEMP}/keys" --releases-dir "${RUNNER_TEMP}/releases" --out "${RUNNER_TEMP}/env/depa-env.yaml"
-      - name: "DC: register parties and approve the clean-room releases in KMS and contract service (idempotent)"
+      - name: Register parties and releases
         run: |
           depa dc setup --env "${RUNNER_TEMP}/env/depa-env.yaml"
           mkdir -p "${RUNNER_TEMP}/artifacts/receipts" "${RUNNER_TEMP}/work"
-      - name: "Providers: create dataset keys in the KMS and set release policies"
+      - name: Dataset keys and policies
         env:
           STAGE: keys
         run: |
@@ -133,7 +145,7 @@ jobs:
             --platform "${PLATFORM}" --work-dir "${RUNNER_TEMP}/work" --stage "${STAGE}"
             >"${RUNNER_TEMP}/artifacts/${STAGE}.json"
           { echo "### ${STAGE}"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/${STAGE}.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
-      - name: "Providers: encrypt datasets and upload to provider storage; publish to the catalogue"
+      - name: Encrypt and upload data
         env:
           STAGE: data
         run: |
@@ -145,7 +157,7 @@ jobs:
             --storage-token-env DEPA_STORAGE_TOKEN --output-token-env DEPA_STORAGE_TOKEN
             >"${RUNNER_TEMP}/artifacts/${STAGE}.json"
           { echo "### ${STAGE}"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/${STAGE}.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
-      - name: "Consumer: propose the contract · Providers: verify and sign"
+      - name: Sign contract
         env:
           STAGE: contract
         run: |
@@ -154,7 +166,7 @@ jobs:
             --platform "${PLATFORM}" --work-dir "${RUNNER_TEMP}/work" --stage "${STAGE}"
             >"${RUNNER_TEMP}/artifacts/${STAGE}.json"
           { echo "### ${STAGE}"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/${STAGE}.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
-      - name: "Consumer: run the clean-room training job (${{ inputs.platform == 'gcp' && 'GCP Confidential Space' || 'AKS → confidential ACI' }})"
+      - name: Train in clean room
         env:
           STAGE: train
         run: |
@@ -163,7 +175,7 @@ jobs:
             --platform "${PLATFORM}" --work-dir "${RUNNER_TEMP}/work" --stage "${STAGE}"
             >"${RUNNER_TEMP}/artifacts/${STAGE}.json"
           { echo "### ${STAGE}"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/${STAGE}.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
-      - name: "Consumer: download and decrypt the model; verify execution receipts"
+      - name: Download model
         env:
           STAGE: model
         run: |
@@ -175,7 +187,7 @@ jobs:
             --storage-token-env DEPA_STORAGE_TOKEN --output-token-env DEPA_STORAGE_TOKEN
             >"${RUNNER_TEMP}/artifacts/${STAGE}.json"
           { echo "### ${STAGE}"; echo '```json'; head -c 20000 "${RUNNER_TEMP}/artifacts/${STAGE}.json"; echo; echo '```'; } >>"${GITHUB_STEP_SUMMARY}"
-      - name: Collect execution receipts (never keys, plaintext data or the decrypted model)
+      - name: Collect receipts
         if: always()
         run: find "${RUNNER_TEMP}/work" -type f -iname '*receipt*' -exec cp -t "${RUNNER_TEMP}/artifacts/receipts" {} + 2>/dev/null || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

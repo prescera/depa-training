@@ -35,7 +35,7 @@ bash prepare/prepare_all.sh --inputs /tmp/brats/inputs
 depa-train run --recipe recipe.yaml --inputs /tmp/brats/inputs --outputs /tmp/brats/out --result /tmp/brats/result.json
 ```
 
-On Azure, run the **End to end** workflow with scenario `brats`.
+On Azure, run the **End-to-end demo** workflow (or **Run scenario** on an existing deployment) with scenario `brats`.
 
 Verified result (CPU, 3 epochs, about 70 s): Dice 0.36–0.47, Jaccard 0.25–0.35, with ε 1.5 spent.
 More epochs improve utility at the same privacy budget.

@@ -48,7 +48,7 @@ bash prepare/prepare_all.sh --inputs /tmp/credit/inputs
 depa-train run --recipe recipe.yaml --inputs /tmp/credit/inputs --outputs /tmp/credit/out --result /tmp/credit/result.json
 ```
 
-On Azure, run the **End to end** workflow with scenario `credit-risk`. This is also the scenario
+On Azure, run the **End-to-end demo** workflow (or **Run scenario** on an existing deployment) with scenario `credit-risk`. This is also the scenario
 used by the pull-request demo check.
 
 Verified result (synthetic data, CPU, about 4 s): accuracy 0.95, ROC AUC 0.975 (0.984 without DP),

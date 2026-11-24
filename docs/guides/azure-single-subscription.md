@@ -33,25 +33,23 @@ these slots, so one deployment runs any scenario.
 
 The default region is **`centralindia`** (short code `cin`). The region must offer Azure
 Confidential Ledger, Functions Flex Consumption and AKS virtual nodes v2 with confidential pods.
-Workflow **1 · Platform** checks all three before it plans anything
+**Set up collaborative** checks all three before it plans anything
 (`deploy/scripts/check-region.sh`), and when a region fails it lists the regions that offer all
 three. Add required reviewers to the environment to get an approval gate.
 
-## 2. Deploy (Actions tab)
+## 2. Deploy and run (Actions tab)
 
-One click: **End to end: steps 1–5 for one scenario** (environment, scenario, platform, optional
-teardown). The workflows sort in run order and can also be run one by one:
+One click: **End-to-end demo** (environment, scenario, platform, optional teardown). It runs
+three workflows that mirror the DEPA Training flow, which can also be run one by one:
 
-| Step | Workflow | Result |
-|---|---|---|
-| 1 | 1 · Platform: ledgers for KMS and contract service, container registry, AKS cluster (Azure) | Party resource groups, both ledgers with Key Vaults, ACR, AKS |
-| 2 | 2 · DC services: KMS and contract service apps on Azure Confidential Ledger, governance setup | Both bundles on their ledgers, governance set up |
-| 3 | 3 · Party resources: provider and consumer storage with SAS brokers, AKS virtual nodes for clean rooms | Provider storage and SAS brokers (KMS keys pinned, broker code deployed), consumer output storage, virtual nodes |
-| 4 | 4 · Clean-room images: build, push to ACR, CCE policies, release manifests | Clean-room images in ACR, CCE policies, release manifests |
-| 5 | 5 · Run scenario: dataset keys and policies → encrypt and upload data → contract signing → clean-room training → model download | One step per stage and party role; uploads the stage summaries and receipts |
+| Workflow | What it does |
+|---|---|
+| **Set up collaborative** | The Data Collaborative's trusted services: ledgers, KMS and contract service with governance, clean-room releases |
+| **Set up collaborators** | Each provider's storage and SAS broker, the consumer's output storage, AKS virtual nodes for clean rooms |
+| **Run scenario** | Dataset keys and policies → encrypt and upload data → sign contract → train in clean room → download model |
 
-Re-run step 5 for any scenario; no redeployment is needed. **Tear down all Azure resources**
-removes everything.
+Re-run **Run scenario** for any scenario; no redeployment is needed. **Tear down** removes
+everything.
 
 ## 3. Check the result
 

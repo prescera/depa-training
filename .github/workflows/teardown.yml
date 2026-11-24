@@ -1,13 +1,13 @@
-name: Tear down all Azure resources
+name: Tear down
 
-# Destroys the party resources (2-workloads), then the platform (1-platform) of the
-# single-subscription Azure deployment. Key Vaults are soft-deleted (purge protection) and keep
+# Destroys the collaborator resources (2-workloads), then the trusted services infrastructure
+# (1-platform) of the single-subscription Azure deployment. Key Vaults are soft-deleted (purge protection) and keep
 # their names reserved for the retention period; ledgers, storage, AKS and the registry are deleted.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment with the Azure secrets and variables (approval gate)
+        description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
       confirm:
@@ -59,7 +59,9 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: "Destroy party resources: storage, SAS brokers, AKS virtual nodes release"
+      # Collaborator resources first (storage, SAS brokers, virtual nodes release), then the
+      # trusted services infrastructure (ledgers, Key Vaults, registry, AKS, resource groups).
+      - name: Destroy collaborator resources
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}
         run: |
@@ -71,7 +73,7 @@ jobs:
               >"${DIR}/2-workloads/broker.auto.tfvars.json"
             terraform -chdir="${DIR}/2-workloads" destroy -no-color -auto-approve
           fi
-      - name: "Destroy the platform: ledgers, Key Vaults, registry, AKS, resource groups"
+      - name: Destroy trusted services infrastructure
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}
         run: terraform -chdir="${DIR}/1-platform" destroy -no-color -auto-approve

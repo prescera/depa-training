@@ -1,4 +1,4 @@
-name: "End to end for a pull request (label run-azure-demo): credit-risk on Azure, then tear down"
+name: End-to-end demo (PR)
 
 # Label a pull request `run-azure-demo` to deploy from the PR's code, run credit-risk end to end
 # and tear everything down. Same-repository PRs only (forks get no OIDC token or secrets); the
@@ -12,6 +12,7 @@ permissions: {}
 
 jobs:
   end-to-end:
+    name: End-to-end demo
     if: >-
       contains(github.event.pull_request.labels.*.name, 'run-azure-demo') &&
       github.event.pull_request.head.repo.full_name == github.repository &&

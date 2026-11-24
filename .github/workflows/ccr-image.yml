@@ -1,4 +1,4 @@
-name: CCR images
+name: Clean-room images
 
 on:
   pull_request:

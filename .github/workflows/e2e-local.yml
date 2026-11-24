@@ -1,4 +1,4 @@
-name: E2E (local sandboxes)
+name: Local end-to-end
 
 # Cheap always-on end-to-end check: real KMS + Contract Service on CCF virtual sandboxes (docker),
 # virtual clean room, credit-risk scenario, plus the e2e pytest suite. No cloud access.

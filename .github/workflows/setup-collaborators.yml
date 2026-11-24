@@ -1,15 +1,18 @@
-name: "3 · Party resources: provider and consumer storage with SAS brokers, AKS virtual nodes for clean rooms"
+name: Set up collaborators
 
-# Terraform deploy/terraform/environments/azure-single-subscription/2-workloads: per provider
-# (tdp-1..tdp-4, tdc) dataset storage + federation (SAS) broker with the KMS JWKS pinned, the
-# consumer's output storage + broker, and the AKS virtual nodes v2 release, namespace and RBAC for
-# clean rooms. Then deploys the broker code (Entra-authenticated, no basic-auth publishing).
-# Needs workflow 2 (the KMS must be bootstrapped); next: workflows 4 and 5.
+# Provider and consumer resources on Azure: Terraform azure-single-subscription/2-workloads.
+#   - per provider (tdc, tdp-1..tdp-4): dataset storage + SAS federation broker, with the KMS JWKS
+#     pinned (fetched over TLS pinned to the KMS ledger, cross-checked with GET /info);
+#   - the consumer's output storage + broker;
+#   - AKS virtual nodes v2 release, clean-room namespace, quota and job-submitter RBAC;
+#   - then the broker code is deployed to the function apps with Entra auth
+#     (deploy/scripts/deploy-brokers.sh; basic-auth publishing stays disabled).
+# Needs "Set up collaborative" (the KMS must be bootstrapped). Next: "Run scenario".
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment with the Azure secrets and variables (approval gate)
+        description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
       apply:
@@ -32,8 +35,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  party-resources:
-    name: Party resources (${{ inputs.apply && 'apply' || 'plan' }})
+  resources:
+    name: Provider and consumer resources
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: ${{ inputs.environment }}
@@ -60,17 +63,18 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
-      - name: "Inputs: platform outputs and the KMS JWKS (pinned into every SAS broker)"
+      - name: Collect inputs
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}
         run: |
+          # Phase-1 outputs and the KMS JWKS that every SAS broker pins.
           sudo az aks install-cli --only-show-errors >/dev/null
           terraform -chdir="${DIR}/1-platform" output -json platform \
             | jq '{platform: .}' >"${DIR}/2-workloads/platform.auto.tfvars.json"
           ledger="$(jq -r '.platform.kms.ledger_name' "${DIR}/2-workloads/platform.auto.tfvars.json")"
           jwks="$(deploy/scripts/fetch-kms-jwks.sh "${ledger}")"
           jq -n --arg j "${jwks}" '{kms_jwks_json: $j}' >"${DIR}/2-workloads/broker.auto.tfvars.json"
-      - name: "Clean-room cluster: remove a virtual-nodes namespace left by a failed install"
+      - name: Remove stray virtual-nodes namespace
         if: inputs.apply
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}
@@ -91,14 +95,14 @@ jobs:
         run: |
           set -o pipefail
           terraform -chdir="${DIR}" plan -no-color -out=tfplan | tee "${RUNNER_TEMP}/plan.txt"
-          { echo "### Party resources: terraform plan"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } \
+          { echo "### Provider and consumer resources: terraform plan (2-workloads)"; echo '```'; grep -E '^Plan:|No changes' "${RUNNER_TEMP}/plan.txt" || true; echo '```'; } \
             >>"${GITHUB_STEP_SUMMARY}"
       - name: Terraform apply
         if: inputs.apply
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}/2-workloads
         run: terraform -chdir="${DIR}" apply -no-color -auto-approve tfplan
-      - name: "Providers and consumer: deploy the SAS broker code to their function apps (Entra auth)"
+      - name: Deploy broker code
         if: inputs.apply
         env:
           DIR: ${{ steps.azure.outputs.deploy-dir }}/2-workloads

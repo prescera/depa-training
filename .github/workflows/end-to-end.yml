@@ -1,14 +1,13 @@
-name: "End to end: steps 1–5 for one scenario (Azure, optional teardown)"
+name: End-to-end demo
 
-# One click: runs workflows 1-5 as reusable workflows, then optionally tears everything down.
-#   1 platform -> 2 DC services -> 3 party resources ┐
-#   1 platform -> 4 clean-room images ───────────────┴-> 5 run scenario -> (teardown)
-# Every job runs in the chosen GitHub environment, so its protection rules (reviewers) gate it.
+# One click: "Set up collaborative" -> "Set up collaborators" -> "Run scenario", then optionally
+# "Tear down" (also after a failure). Each is called as a reusable workflow; every job runs in the
+# chosen GitHub environment, so its protection rules (reviewers) gate it.
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: GitHub environment with the Azure secrets and variables (approval gate)
+        description: GitHub environment with the Azure secrets and variables
         type: environment
         required: true
       scenario:
@@ -17,12 +16,12 @@ on:
         options: [credit-risk, mnist, cifar10, covid, brats, llm-sft]
         default: credit-risk
       platform:
-        description: "Clean-room platform: aks (Azure confidential ACI) or gcp (Confidential Space)"
+        description: "Clean-room platform: aks (confidential ACI) or gcp (Confidential Space)"
         type: choice
         options: [aks, gcp]
         default: aks
       teardown:
-        description: Tear down all Azure resources afterwards (also after a failure)
+        description: Tear down afterwards (also after a failure)
         type: boolean
         default: false
   workflow_call:
@@ -42,62 +41,40 @@ on:
 
 permissions: {}
 
-# Distinct from the stages' own groups (azure-<env>, …) so they can run inside this run.
+# Distinct from the called workflows' groups (azure-<env>, …) so they can run inside this run.
 concurrency:
   group: end-to-end-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
-  platform:
-    name: 1 · Platform
-    uses: ./.github/workflows/1-deploy-platform.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      environment: ${{ inputs.environment }}
-      apply: true
-    secrets: inherit
-
-  dc-services:
-    name: 2 · DC services
-    needs: platform
-    uses: ./.github/workflows/2-deploy-dc-services.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      environment: ${{ inputs.environment }}
-    secrets: inherit
-
-  party-resources:
-    name: 3 · Party resources
-    needs: dc-services
-    uses: ./.github/workflows/3-deploy-party-resources.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      environment: ${{ inputs.environment }}
-      apply: true
-    secrets: inherit
-
-  images:
-    name: 4 · Clean-room images
-    needs: platform
-    uses: ./.github/workflows/4-build-clean-room-images.yml
+  collaborative:
+    name: Set up collaborative
+    uses: ./.github/workflows/setup-collaborative.yml
     permissions:
       contents: read
       id-token: write
       attestations: write
     with:
       environment: ${{ inputs.environment }}
+      apply: true
+    secrets: inherit
+
+  collaborators:
+    name: Set up collaborators
+    needs: collaborative
+    uses: ./.github/workflows/setup-collaborators.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+      apply: true
     secrets: inherit
 
   scenario:
-    name: 5 · Run scenario
-    needs: [party-resources, images]
-    uses: ./.github/workflows/5-run-scenario.yml
+    name: Run scenario
+    needs: collaborators
+    uses: ./.github/workflows/run-scenario.yml
     permissions:
       contents: read
       id-token: write
@@ -110,7 +87,7 @@ jobs:
 
   teardown:
     name: Tear down
-    needs: [platform, dc-services, party-resources, images, scenario]
+    needs: [collaborative, collaborators, scenario]
     if: always() && inputs.teardown
     uses: ./.github/workflows/teardown.yml
     permissions:

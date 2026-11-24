@@ -96,7 +96,7 @@ gui/             minimal web console over the SDK
 - **Local, no cloud:** [docs/guides/quickstart.md](docs/guides/quickstart.md). Runs both trust
   services in CCF sandboxes, then a full scenario (encrypt → contract → clean-room run →
   receipts → model) with a development-only virtual clean room.
-- **Azure, one click:** after a one-time setup, the **End to end** workflow deploys a
+- **Azure, one click:** after a one-time setup, the **End-to-end demo** workflow deploys a
   complete collaborative and runs a scenario. See [docs/guides/azure-single-subscription.md](docs/guides/azure-single-subscription.md).
 - **Console:** `depa-console` is a minimal local web UI over the SDK, acting as one party at a
   time ([gui/README.md](gui/README.md)).
