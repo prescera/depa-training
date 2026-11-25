@@ -214,6 +214,10 @@ def dc_setup(
                 except NotFoundError:
                     pass
                 actions.append({"name": "approve_ccr_release", "args": manifest.release})
+            if which == "kms":
+                # The output audiences come from collaborators deployed after link ran, so refresh
+                # the OIDC settings here too (no proposal when unchanged).
+                actions += _oidc_actions(env, client, summary)
             act(client, which, actions)
     return summary
 

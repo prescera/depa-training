@@ -129,8 +129,20 @@ def test_dc_setup_steps_as_separate_processes(fresh: Fresh, tmp_path: Path) -> N
         )
         return r.returncode, json.loads(r.stdout) if r.stdout.startswith("{") else {"stderr": r.stderr}
 
-    def setup(step: str, *extra: str) -> tuple[int, dict]:
-        return run("dc", "setup", "--env", str(env_file), "--step", step, *extra)
+    def setup(step: str, *extra: str, env: Path | None = None) -> tuple[int, dict]:
+        return run("dc", "setup", "--env", str(env or env_file), "--step", step, *extra)
+
+    # The TDC's federated output storage (and so its OIDC audience) exists only once collaborators
+    # are set up, after link ran: register must add the audience to the KMS OIDC settings.
+    later_env = env_file.with_name("depa-env-with-collaborators.yaml")
+    later = yaml.safe_load(env_file.read_text())
+    later["outputs"]["tdc"] = {
+        "connector": "s3",
+        "uri": "s3://tdc-outputs/runs/",
+        "region": "ap-south-1",
+        "federation": {"aws": {"role_arn": "arn:aws:iam::123456789012:role/depa-outputs"}},
+    }
+    later_env.write_text(yaml.safe_dump(later))
 
     rc, out = setup("link")
     assert rc == 2 and "bootstrap-kms" in out["message"]
@@ -151,11 +163,12 @@ def test_dc_setup_steps_as_separate_processes(fresh: Fresh, tmp_path: Path) -> N
     rc, out = setup("link")
     assert rc == 0 and out["proposals"] == {"kms": [], "cs": []}  # idempotent
 
-    rc, out = setup("register")
-    assert rc == 0
+    rc, out = setup("register", env=later_env)
+    assert rc == 0, out
     names = [a for which in ("kms", "cs") for p in out["proposals"][which] for a in p["actions"]]
     assert names.count("set_party") == 6 and names.count("approve_ccr_release") == 2
-    rc, out = setup("register")
+    assert names.count("set_oidc_settings") == 1  # the output audience, unknown when link ran
+    rc, out = setup("register", env=later_env)
     assert rc == 0 and out["proposals"] == {"kms": [], "cs": []}
 
     rc, out = run(
