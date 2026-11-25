@@ -51,13 +51,19 @@ case "${cmd}" in
   wait-ready)
     [[ "${state}" == Running ]] || { log "error: ${name:-cluster} is ${state}"; exit 1; }
     deadline=$(( $(date +%s) + ${1:-20} * 60 ))
+    err="$(mktemp)"
+    trap 'rm -f "${err}"' EXIT
     while :; do
+      # command invoke runs kubectl in a pod scheduled on the cluster; when that pod cannot be
+      # scheduled (e.g. the node pool is out of pod slots) the CLI fails, so keep its error.
       nodes="$(az aks command invoke --resource-group "${rg}" --name "${name}" --output tsv --query logs \
-        --command "kubectl get nodes -l type=virtual-kubelet --no-headers" 2>/dev/null || true)"
+        --command "kubectl get nodes -l type=virtual-kubelet --no-headers" 2>"${err}" || true)"
       if grep -qE '[[:space:]]Ready[[:space:]]' <<<"${nodes}"; then
         log "virtual node ready: $(awk '{print $1}' <<<"${nodes}" | head -1)"
         break
       fi
+      [[ -s "${err}" ]] && log "kubectl via command invoke failed: $(tail -c 400 "${err}" | tr '\n' ' ')"
+      [[ -n "${nodes}" ]] && log "virtual node not Ready yet: $(head -1 <<<"${nodes}")"
       (( $(date +%s) < deadline )) || { log "error: no Ready virtual node after ${1:-20} minutes"; exit 1; }
       sleep 20
     done ;;

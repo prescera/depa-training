@@ -28,7 +28,10 @@ module "cluster" {
   # Demo sizing: Free control-plane tier and one system node (no zones); clean rooms run on
   # confidential ACI and are billed per second, so the node pool is the only always-on compute.
   aks_sku_tier        = "Free"
-  system_node_count   = 1
+  # Two nodes: with Azure CNI each node takes about 30 pods, and the system pods plus the virtual
+  # node pods do not fit on one (the virtual node then never becomes Ready). Pause the cluster
+  # between runs (Pause CCR Provider) to stop paying for the nodes.
+  system_node_count   = 2
   system_node_vm_size = var.system_node_vm_size
   # Demo simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
   # Azure endpoint in the region on 443 (defence in depth only; see the module README).

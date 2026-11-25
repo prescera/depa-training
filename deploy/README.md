@@ -291,9 +291,9 @@ environment `pypi`, and set the repository variable `PUBLISH_PYPI=true`.
   firewall handling) is as in production, which keeps purge protection on (the service repos'
   default). Purge protection cannot be turned off on an existing vault: this applies to fresh
   deployments.
-- Demo deployment only: the clean-room cluster runs a single system node on the Free AKS tier
-  (`ccr-provider-cluster`), and can be paused between runs (**Pause CCR Provider** /
-  **Resume CCR Provider**).
+- Demo deployment only: the clean-room cluster runs two system nodes on the Free AKS tier
+  (`ccr-provider-cluster`; one node runs out of pod slots, so the virtual node never becomes
+  Ready), and can be paused between runs (**Pause CCR Provider** / **Resume CCR Provider**).
 - Egress from clean rooms is allowed to `AzureCloud.<region>` on 443 because ACL has no service
   tag (defence in depth only; the CCR is the boundary).
 - ACL user-defined endpoints (custom JS apps) must be available in the chosen region.

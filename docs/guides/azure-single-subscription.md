@@ -74,7 +74,7 @@ scenario runs):
 | Resource | Notes |
 |---|---|
 | Two Azure Confidential Ledgers (KMS, Contract Service) | the largest fixed cost |
-| AKS system pool (CCR provider) | one node, `Standard_D4ds_v5` by default (`system_node_vm_size`; `Standard_D2ds_v5` is a cheaper option to try); Free control-plane tier; stops billing while paused |
+| AKS system pool (CCR provider) | two nodes, `Standard_D4ds_v5` by default (`system_node_vm_size`). One node is not enough: with Azure CNI a node takes about 30 pods, and the system and virtual-node pods need more. Free control-plane tier; stops billing while paused |
 | Container registry, Key Vaults | Standard registry; Key Vaults per operation (small) |
 | Log Analytics | per GB ingested (AKS audit logs, broker telemetry), small for the demo |
 
