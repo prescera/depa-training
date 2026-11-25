@@ -27,7 +27,7 @@ module "cluster" {
   create_log_analytics_workspace  = true
   # Demo sizing: Free control-plane tier and one system node (no zones); clean rooms run on
   # confidential ACI and are billed per second, so the node pool is the only always-on compute.
-  aks_sku_tier        = "Free"
+  aks_sku_tier = "Free"
   # Two nodes: with Azure CNI each node takes about 30 pods, and the system pods plus the virtual
   # node pods do not fit on one (the virtual node then never becomes Ready). Pause the cluster
   # between runs (Pause CCR Provider) to stop paying for the nodes.
