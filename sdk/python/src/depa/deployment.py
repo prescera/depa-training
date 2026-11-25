@@ -737,8 +737,12 @@ class _Deployer:
             self.pause(5 if self.opts.platform == "local" else 20)
         self.step("run.finished", run_id=run["run_id"], state=run["state"])
         if run["state"] != "completed":
-            failure = next((e.get("data") for e in run.get("events", []) if e.get("type") == "failed"), None)
-            raise ServiceError(f"run {run['run_id']} failed: {failure}", service="ccr", code="run_failed")
+            # The run list omits events; the run record carries the CCR's coarse failure event
+            # ({code, stage}), which is safe to show (no data or log content).
+            events = self.cs.get_run(str(run["run_id"])).get("events", [])
+            failure = next((e.get("data") for e in events if e.get("type") == "failed"), None) or {}
+            reason = ", ".join(f"{k}={failure[k]}" for k in ("stage", "code") if failure.get(k)) or "no failure event"
+            raise ServiceError(f"run {run['run_id']} failed ({reason})", service="ccr", code="run_failed")
         return dict(run)
 
     def outputs(self, run: Mapping[str, Any], contract: Mapping[str, Any]) -> dict[str, Any]:
