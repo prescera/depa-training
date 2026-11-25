@@ -29,5 +29,12 @@ provider "azurerm" {
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
+    # Demo only: purge the Key Vault on destroy (purge protection is off in this root) so a
+    # torn-down demo frees the vault name for the next deployment. Production keeps purge
+    # protection and the soft-deleted vault.
+    key_vault {
+      purge_soft_delete_on_destroy    = true
+      recover_soft_deleted_key_vaults = false
+    }
   }
 }

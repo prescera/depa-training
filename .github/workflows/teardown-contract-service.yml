@@ -1,7 +1,7 @@
 name: Tear down Contract Service
 
-# Destroys the Contract Service (ledger, Key Vault, network). Key Vaults are soft-deleted (purge
-# protection) and keep their names reserved for the retention period.
+# Destroys the Contract Service (ledger, Key Vault). Demo only: the Key Vault has no purge protection
+# and the azurerm provider purges it on destroy, so a fresh deployment can reuse its name at once.
 on:
   workflow_dispatch:
     inputs:

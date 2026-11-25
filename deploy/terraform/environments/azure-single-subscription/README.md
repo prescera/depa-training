@@ -6,8 +6,8 @@ deployed, re-deployed or destroyed on its own.
 
 | Root | State key (`depa-training/<environment>/…`) | Creates | Reads |
 |---|---|---|---|
-| [`kms`](kms) | `kms.tfstate` | `<prefix>-dc-kms-rg`: KMS ledger (Azure Confidential Ledger), Key Vault + member certificate, network | — |
-| [`contract-service`](contract-service) | `contract-service.tfstate` | `<prefix>-dc-cs-rg`: Contract Service ledger, Key Vault, network | — |
+| [`kms`](kms) | `kms.tfstate` | `<prefix>-dc-kms-rg`: KMS ledger (Azure Confidential Ledger), Key Vault + member certificate (purged on destroy), network | — |
+| [`contract-service`](contract-service) | `contract-service.tfstate` | `<prefix>-dc-cs-rg`: Contract Service ledger, Key Vault + member certificate (purged on destroy) | — |
 | [`registry`](registry) | `registry.tfstate` | `<prefix>-registry-rg`: container registry for clean-room images, AcrPush for the deployer | — |
 | [`data-provider`](data-provider) (`party_id` = tdp-1…tdp-4) | `data-provider-<party>.tfstate` | `<prefix>-<party>-rg`: dataset storage (`datasets` container) + SAS broker | inputs: KMS issuer + pinned KMS JWKS |
 | [`data-consumer`](data-consumer) | `data-consumer.tfstate` | `<prefix>-tdc-rg`: the consumer's own dataset storage (llm-sft base model), output storage, SAS brokers | inputs: KMS issuer + pinned KMS JWKS |

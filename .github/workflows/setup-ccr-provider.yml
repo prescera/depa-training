@@ -54,6 +54,12 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Start the cluster if paused
+        run: |
+          # AKS rejects updates on a stopped cluster, and the in-cluster config needs the API server.
+          if [[ "$(deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" status)" == Stopped ]]; then
+            deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" start
+          fi
       - name: Registry input
         env:
           DIR: ${{ steps.tf.outputs.dir }}
@@ -105,6 +111,12 @@ jobs:
           deployer-object-id: ${{ secrets.DEPLOYER_OBJECT_ID }}
           tfstate-resource-group: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      - name: Start the cluster if paused
+        run: |
+          # AKS rejects updates on a stopped cluster, and the in-cluster config needs the API server.
+          if [[ "$(deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" status)" == Stopped ]]; then
+            deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" start
+          fi
       - name: Remove stray virtual-nodes namespace
         env:
           DIR: ${{ steps.tf.outputs.dir }}

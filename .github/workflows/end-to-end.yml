@@ -10,7 +10,8 @@ name: End-to-End demo
 #   collaborators  Tear down Scenario, then Tear down Collaborators (providers, consumer, CCR provider)
 #   all            the above, then Tear down DC services
 # Teardown also runs after a failed stage. Every job runs in the chosen GitHub environment, whose
-# protection rules (reviewers) gate it.
+# protection rules (reviewers) gate it. depa_version (install the CLI from a release) is a
+# workflow_call input only (manual runs allow 10 inputs); Run Scenario offers it when run alone.
 on:
   workflow_dispatch:
     inputs:
@@ -44,15 +45,19 @@ on:
         type: choice
         options: [aks, gcp]
         default: aks
-      depa_version:
-        description: depa CLI release to install (e.g. 2.0.0); empty = build from this checkout
-        type: string
-        default: ""
       teardown:
         description: "Tear down afterwards: none · scenario · collaborators · all"
         type: choice
         options: [none, scenario, collaborators, all]
         default: none
+      resume_ccr_provider:
+        description: Start the CCR provider cluster first if it is paused
+        type: boolean
+        default: true
+      pause_ccr_provider_after:
+        description: Pause the CCR provider cluster after the run
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       environment:
@@ -83,6 +88,12 @@ on:
         type: string
         default: none
 
+      resume_ccr_provider:
+        type: boolean
+        default: true
+      pause_ccr_provider_after:
+        type: boolean
+        default: false
 permissions: {}
 
 concurrency:
@@ -194,6 +205,8 @@ jobs:
       scenario: ${{ inputs.scenario }}
       platform: ${{ inputs.platform }}
       depa_version: ${{ inputs.depa_version }}
+      resume_ccr_provider: ${{ inputs.resume_ccr_provider }}
+      pause_ccr_provider_after: ${{ inputs.pause_ccr_provider_after }}
     secrets: inherit
 
   teardown-scenario:

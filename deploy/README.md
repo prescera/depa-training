@@ -141,14 +141,16 @@ End-to-End demo                              end-to-end.yml
 │  ├─ Setup Data Consumer                    setup-data-consumer.yml         root data-consumer, broker code
 │  └─ Setup CCR Provider                     setup-ccr-provider.yml          roots ccr-provider-cluster → ccr-provider-config
 ├─ Run Scenario                              run-scenario.yml
-│  ├─ Preflight (job)                        collaborator + DC component states exist
+│  ├─ Preflight (job)                        collaborator + DC component states exist, cluster power state
+│  ├─ Resume CCR Provider (resume_ccr_provider) resume-ccr-provider.yml     az aks start, wait for the virtual node
 │  ├─ Register collaborators and artefacts   register-collaborators.yml      dc setup --step register
 │  ├─ Keys and policies                      keys-and-policies.yml
 │  │  ├─ Configure Key release policies      configure-key-release-policies.yml  --stage keys
 │  │  └─ Data/Model encryption and storage   data-encryption-storage.yml     --stage data (with the trainer stack)
 │  ├─ Contract Signing                       contract-signing.yml            --stage contract
 │  ├─ Model Training in CCR                  model-training.yml              --stage train
-│  └─ Model download and provenance          model-download.yml              --stage model, receipts artifact
+│  ├─ Model download and provenance          model-download.yml              --stage model, receipts artifact
+│  └─ Pause CCR Provider (pause_ccr_provider_after) pause-ccr-provider.yml  az aks stop
 └─ Tear down                                 teardown.yml                    scope: scenario | collaborators | all
    ├─ Tear down Scenario                     teardown-scenario.yml           depa scenario teardown: revoke contracts, delete model outputs
    ├─ Tear down Collaborators                teardown-collaborators.yml      data providers, data consumer, CCR config → cluster
@@ -173,9 +175,13 @@ touches collaborators for `scenario` or DC services unless `all`):
 Teardown scopes: `scenario` = Tear down Scenario; `collaborators` = Tear down Scenario, then Tear
 down Collaborators; `all` = both, then Tear down DC services.
 `skip_cleanroom_build` (with `setup_data_collab`) reuses the latest clean-room release manifests.
+`resume_ccr_provider` (default on) starts a paused CCR provider cluster before the scenario;
+`pause_ccr_provider_after` pauses it afterwards. **Pause CCR Provider** / **Resume CCR Provider**
+also run on their own; Setup CCR Provider and Tear down Collaborators start a paused cluster
+first (AKS rejects updates on a stopped cluster and the in-cluster config needs the API server).
 **Tear down** run on its own takes the same scopes (`scenario` needs a scenario; with
 `collaborators`/`all` the scenario is optional). `depa_version`
-(End-to-End demo and the Run Scenario tree) installs the CLI from the GitHub Release
+(the Run Scenario tree; End-to-End demo when called from another workflow) installs the CLI from the GitHub Release
 `v<version>` (checksum-verified wheels) instead of building it from the checkout.
 
 Each Terraform leaf initialises one component root (`azure-terraform` action) against
@@ -277,6 +283,17 @@ environment `pypi`, and set the repository variable `PUBLISH_PYPI=true`.
   and Terraform reads the vault certificates while refreshing state. Data-plane access still
   requires Entra RBAC. Production keeps `Deny` and runs Terraform from an allowed IP range or a
   self-hosted runner in an allowed subnet.
+- Demo deployment only: the Key Vaults have no purge protection and a 7-day soft-delete retention
+  (`key_vault_purge_protection_enabled = false`, `key_vault_soft_delete_retention_days = 7` in the
+  `kms` and `contract-service` roots), and the azurerm provider purges them on destroy
+  (`purge_soft_delete_on_destroy`), so Tear down KMS / Tear down Contract Service free the vault
+  names and the next deployment can reuse them. Everything else (vaults, member certificates,
+  firewall handling) is as in production, which keeps purge protection on (the service repos'
+  default). Purge protection cannot be turned off on an existing vault: this applies to fresh
+  deployments.
+- Demo deployment only: the clean-room cluster runs a single system node on the Free AKS tier
+  (`ccr-provider-cluster`), and can be paused between runs (**Pause CCR Provider** /
+  **Resume CCR Provider**).
 - Egress from clean rooms is allowed to `AzureCloud.<region>` on 443 because ACL has no service
   tag (defence in depth only; the CCR is the boundary).
 - ACL user-defined endpoints (custom JS apps) must be available in the chosen region.

@@ -25,6 +25,11 @@ module "cluster" {
   acr_id                          = var.registry_id
   enable_acr_pull                 = var.registry_id != null
   create_log_analytics_workspace  = true
+  # Demo sizing: Free control-plane tier and one system node (no zones); clean rooms run on
+  # confidential ACI and are billed per second, so the node pool is the only always-on compute.
+  aks_sku_tier        = "Free"
+  system_node_count   = 1
+  system_node_vm_size = var.system_node_vm_size
   # Demo simplification: the KMS/CS ledgers have no service tag, so clean rooms may reach any
   # Azure endpoint in the region on 443 (defence in depth only; see the module README).
   egress_https_service_tags = [

@@ -18,14 +18,14 @@ output "resource_group_name" {
   value       = module.kms.resource_group_name
 }
 
-output "key_vault_name" {
-  description = "Key Vault holding the ledger member certificate."
-  value       = module.kms.key_vault_name
-}
-
 output "oidc_issuer_url" {
   description = "KMS OIDC issuer (set_oidc_settings.issuer_url): the ledger app endpoint + /oidc."
   value       = "${trimsuffix(module.kms.ledger_endpoint, "/")}/app/oidc"
+}
+
+output "key_vault_name" {
+  description = "Key Vault holding the ledger member certificate."
+  value       = module.kms.key_vault_name
 }
 
 output "gateway_stack_inputs" {

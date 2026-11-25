@@ -4,7 +4,8 @@ name: Run Scenario
 # the DEPA_PARTY_KEYS secret; the scenario's providers map onto tdp-1..tdp-4, its consumer onto
 # tdc): register -> keys and policies -> contract signing -> training in the clean room -> model
 # download and provenance. Needs "Setup Data Collab" and "Setup Training Collaborators" (a
-# Preflight job checks their state first).
+# Preflight job checks their state first). resume_ccr_provider starts a paused CCR provider
+# cluster before the run; pause_ccr_provider_after pauses it afterwards (also after a failure).
 on:
   workflow_dispatch:
     inputs:
@@ -26,6 +27,14 @@ on:
         type: choice
         options: [aks, gcp]
         default: aks
+      resume_ccr_provider:
+        description: Start the CCR provider cluster first if it is paused
+        type: boolean
+        default: true
+      pause_ccr_provider_after:
+        description: Pause the CCR provider cluster after the run
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       environment:
@@ -41,6 +50,12 @@ on:
         type: string
         default: aks
 
+      resume_ccr_provider:
+        type: boolean
+        default: true
+      pause_ccr_provider_after:
+        type: boolean
+        default: false
 permissions: {}
 
 jobs:
@@ -56,6 +71,7 @@ jobs:
       DEPLOY_ENV: ${{ inputs.environment }}
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       SCENARIO: ${{ inputs.scenario }}
+      RESUME: ${{ inputs.resume_ccr_provider }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,11 +97,28 @@ jobs:
             for m in "${missing[@]}"; do echo "::error::not deployed: ${m}"; done
             exit 1
           fi
+          power="$(deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" status)"
+          if [[ "${power}" == Stopped && "${RESUME}" != true ]]; then
+            echo "::error::the CCR provider cluster is paused: run Resume CCR Provider first (or set resume_ccr_provider)"; exit 1
+          fi
           echo "### Preflight: ${SCENARIO} needs ${n} data provider(s); all components deployed" >>"${GITHUB_STEP_SUMMARY}"
+
+  resume:
+    name: Resume CCR Provider
+    needs: preflight
+    if: inputs.resume_ccr_provider
+    uses: ./.github/workflows/resume-ccr-provider.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
 
   register:
     name: Register collaborators and artefacts
-    needs: preflight
+    needs: [preflight, resume]
+    if: ${{ !cancelled() && !failure() }}
     uses: ./.github/workflows/register-collaborators.yml
     permissions:
       contents: read
@@ -154,4 +187,16 @@ jobs:
       depa_version: ${{ inputs.depa_version }}
       scenario: ${{ inputs.scenario }}
       platform: ${{ inputs.platform }}
+    secrets: inherit
+
+  pause:
+    name: Pause CCR Provider
+    needs: [preflight, model]
+    if: ${{ always() && needs.preflight.result == 'success' && inputs.pause_ccr_provider_after }}
+    uses: ./.github/workflows/pause-ccr-provider.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: ${{ inputs.environment }}
     secrets: inherit

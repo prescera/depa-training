@@ -142,6 +142,13 @@ jobs:
           tfstate-storage-account: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       - name: Install kubelogin
         run: sudo az aks install-cli --only-show-errors >/dev/null
+      - name: Start the cluster if paused
+        if: steps.tf.outputs.state-exists == 'true'
+        run: |
+          # AKS rejects updates on a stopped cluster, and the in-cluster config needs the API server.
+          if [[ "$(deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" status)" == Stopped ]]; then
+            deploy/scripts/ccr-cluster.sh --account "${TFSTATE_STORAGE_ACCOUNT}" --environment "${DEPLOY_ENV}" start
+          fi
       - name: Cluster input
         if: steps.tf.outputs.state-exists == 'true'
         env:

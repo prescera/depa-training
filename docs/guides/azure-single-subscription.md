@@ -7,7 +7,7 @@ which is acceptable for synthetic or demo data only.
 
 | Resource group | Party | Contents |
 |---|---|---|
-| `dc-kms`, `dc-cs` | Data Collaborative | KMS and Contract Service, each on its own Azure Confidential Ledger with a Key Vault |
+| `dc-kms`, `dc-cs` | Data Collaborative | KMS and Contract Service, each on its own Azure Confidential Ledger with a Key Vault (member certificate) |
 | `registry` | Data Collaborative | Container registry for clean-room images |
 | one per provider (`tdp-1`…`tdp-4`; `tdc` also provides a dataset) | Data providers | Storage account with a `datasets` container, plus a SAS federation broker |
 | `tdc` | Consumer | Its own dataset storage (llm-sft base model), output storage, SAS brokers |
@@ -65,6 +65,34 @@ already deployed before anything runs):
 Teardown scopes: **scenario** removes one scenario's contracts and model outputs;
 **collaborators** also destroys the providers, consumer and CCR provider; **all** also destroys
 the DC services. **Tear down** on its own takes the same scopes.
+
+## Cost
+
+The demo uses the production components. Billed while deployed (hourly, whether or not a
+scenario runs):
+
+| Resource | Notes |
+|---|---|
+| Two Azure Confidential Ledgers (KMS, Contract Service) | the largest fixed cost |
+| AKS system pool (CCR provider) | one node, `Standard_D4ds_v5` by default (`system_node_vm_size`; `Standard_D2ds_v5` is a cheaper option to try); Free control-plane tier; stops billing while paused |
+| Container registry, Key Vaults | Standard registry; Key Vaults per operation (small) |
+| Log Analytics | per GB ingested (AKS audit logs, broker telemetry), small for the demo |
+
+Billed per use: confidential ACI clean rooms (per second while a training job runs), the Flex
+Consumption SAS brokers (per execution) and storage (per GB and transaction).
+
+Levers, cheapest last:
+
+1. **Back-to-back scenarios** on one deployment: End-to-End demo with both setups off and
+   `teardown = scenario` (removes only that scenario's contracts and outputs).
+2. **Pause between runs**: **Pause CCR Provider** stops the AKS cluster (no node or control-plane
+   charges); **Resume CCR Provider**, or `resume_ccr_provider` (on by default) in Run Scenario /
+   End-to-End demo, starts it again before training. `pause_ccr_provider_after` pauses it after
+   a run.
+3. **Tear down collaborators** (`scope = collaborators`) to drop provider/consumer/CCR resources
+   while keeping the DC services.
+4. **Tear down everything** (`scope = all`) when done. The demo's Key Vaults are purged on
+   destroy, so a fresh deployment can reuse the same names straight away.
 
 ## 3. Check the result
 
