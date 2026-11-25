@@ -411,3 +411,24 @@ def test_azure_and_gcs_delete() -> None:
     respx.delete("https://storage.googleapis.com/storage/v1/b/bkt/o/p%2Fm.json").mock(return_value=httpx.Response(204))
     respx.delete("https://storage.googleapis.com/storage/v1/b/bkt/o/p%2Fx").mock(return_value=httpx.Response(404))
     assert gcs.delete("m.json") is True and gcs.delete("x") is False
+
+
+@respx.mock
+def test_azure_sas_block_upload_keeps_the_signature() -> None:
+    # httpx replaces a URL's query string when params are given; every block and the block list
+    # must still carry the SAS (a dropped signature made large outputs fail with 403 on Azure).
+    from depa.storage.azure_blob import AzureBlobConnector
+
+    sas = "sv=2023-11-03&sr=c&sp=cw&spr=https&sig=abc%2Bdef%3D"
+    conn = AzureBlobConnector(
+        account_host="acct01.blob.core.windows.net", container="out", prefix="c/r/", sas=sas, block_size=4
+    )
+    put = respx.put(url__startswith="https://acct01.blob.core.windows.net/out/c/r/model.dedf").mock(
+        return_value=httpx.Response(201)
+    )
+    conn.upload("model.dedf", io.BytesIO(b"0123456789"), 10)
+    requests = [call.request for call in put.calls]
+    assert [r.url.params.get("comp") for r in requests] == ["block", "block", "block", "blocklist"]
+    for r in requests:
+        assert r.url.params["sig"] == "abc+def=" and r.url.params["sp"] == "cw"
+        assert "authorization" not in r.headers
